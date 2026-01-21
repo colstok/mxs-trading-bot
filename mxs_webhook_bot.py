@@ -451,20 +451,26 @@ def webhook():
             return jsonify({'status': 'SHORT opened', 'entry_price': price, 'result': result})
 
         elif signal == 'BULL_CONTINUATION':
-            # Only enter on continuation if we're flat (no position)
-            if current_position is not None:
-                print(f"BULL CONTINUATION - Skipping, already in {current_position}")
-                return jsonify({'status': 'skipped', 'reason': f'Already in {current_position} position'})
-            print("BULL CONTINUATION - Entering LONG (was flat)")
+            # Skip if already LONG, otherwise enter/flip to LONG
+            if current_position == 'LONG':
+                print("BULL CONTINUATION - Skipping, already LONG")
+                return jsonify({'status': 'skipped', 'reason': 'Already in LONG position'})
+            if current_position == 'SHORT':
+                print("BULL CONTINUATION - Flipping from SHORT to LONG")
+            else:
+                print("BULL CONTINUATION - Entering LONG (was flat)")
             result = execute_bull_break(price)
             return jsonify({'status': 'LONG opened on continuation', 'entry_price': price, 'result': result})
 
         elif signal == 'BEAR_CONTINUATION':
-            # Only enter on continuation if we're flat (no position)
-            if current_position is not None:
-                print(f"BEAR CONTINUATION - Skipping, already in {current_position}")
-                return jsonify({'status': 'skipped', 'reason': f'Already in {current_position} position'})
-            print("BEAR CONTINUATION - Entering SHORT (was flat)")
+            # Skip if already SHORT, otherwise enter/flip to SHORT
+            if current_position == 'SHORT':
+                print("BEAR CONTINUATION - Skipping, already SHORT")
+                return jsonify({'status': 'skipped', 'reason': 'Already in SHORT position'})
+            if current_position == 'LONG':
+                print("BEAR CONTINUATION - Flipping from LONG to SHORT")
+            else:
+                print("BEAR CONTINUATION - Entering SHORT (was flat)")
             result = execute_bear_break(price)
             return jsonify({'status': 'SHORT opened on continuation', 'entry_price': price, 'result': result})
 
