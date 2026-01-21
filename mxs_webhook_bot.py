@@ -482,7 +482,7 @@ def status():
 @app.route('/close', methods=['POST'])
 def close_all():
     """Manually close all positions"""
-    global current_position
+    global current_position, entry_price
 
     if current_position == 'LONG':
         result = close_position(SYMBOL, 'buy')
@@ -492,7 +492,58 @@ def close_all():
         result = {'msg': 'No position to close'}
 
     current_position = None
+    entry_price = None
     return jsonify({'status': 'closed', 'result': result})
+
+@app.route('/check', methods=['GET', 'POST'])
+def check_position():
+    """
+    Check if breakout is still valid - call this via cron every 30 min
+    If LONG and price < entry -> flip to SHORT
+    If SHORT and price > entry -> flip to LONG
+    """
+    global current_position, entry_price
+
+    if current_position is None or entry_price is None:
+        return jsonify({'status': 'no position', 'action': 'none'})
+
+    current_price = get_current_price(SYMBOL)
+    if current_price is None:
+        return jsonify({'error': 'Could not get price'}), 500
+
+    result = {
+        'position': current_position,
+        'entry_price': entry_price,
+        'current_price': current_price,
+        'action': 'none'
+    }
+
+    # Check if breakout failed
+    if current_position == 'LONG' and current_price < entry_price:
+        pct_change = ((current_price - entry_price) / entry_price) * 100
+        print(f"[CHECK] BREAKOUT FAILED! LONG but price {pct_change:.2f}% below entry")
+        print(f"[CHECK] Flipping from LONG to SHORT")
+        execute_bear_break(current_price)
+        result['action'] = 'flipped to SHORT'
+        result['reason'] = f'Price {pct_change:.2f}% below entry'
+
+    elif current_position == 'SHORT' and current_price > entry_price:
+        pct_change = ((current_price - entry_price) / entry_price) * 100
+        print(f"[CHECK] BREAKOUT FAILED! SHORT but price +{pct_change:.2f}% above entry")
+        print(f"[CHECK] Flipping from SHORT to LONG")
+        execute_bull_break(current_price)
+        result['action'] = 'flipped to LONG'
+        result['reason'] = f'Price +{pct_change:.2f}% above entry'
+
+    else:
+        if current_position == 'LONG':
+            pct_change = ((current_price - entry_price) / entry_price) * 100
+            result['status'] = f'Breakout holding, +{pct_change:.2f}% from entry'
+        else:
+            pct_change = ((entry_price - current_price) / entry_price) * 100
+            result['status'] = f'Breakout holding, +{pct_change:.2f}% in profit'
+
+    return jsonify(result)
 
 @app.route('/', methods=['GET'])
 def home():
