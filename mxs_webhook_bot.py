@@ -408,15 +408,16 @@ def webhook():
 
     Expected payload:
     {
-        "signal": "BULL_BREAK" or "BEAR_BREAK",
+        "signal": "BULL_BREAK" or "BEAR_BREAK" or "BULL_CONTINUATION" or "BEAR_CONTINUATION",
         "price": 0.3456
     }
 
     Strategy:
-    - Bull Break -> Enter LONG immediately
-    - Bear Break -> Enter SHORT immediately
+    - Bull Break -> Enter LONG immediately (flips if in SHORT)
+    - Bear Break -> Enter SHORT immediately (flips if in LONG)
+    - Bull Continuation -> Enter LONG only if flat (no position)
+    - Bear Continuation -> Enter SHORT only if flat (no position)
     - 30-minute monitor checks if breakout is still valid
-    - If price falls back below entry, position flips automatically
     """
     try:
         data = request.json
@@ -448,6 +449,24 @@ def webhook():
             print("(30-min monitor will check if breakout holds)")
             result = execute_bear_break(price)
             return jsonify({'status': 'SHORT opened', 'entry_price': price, 'result': result})
+
+        elif signal == 'BULL_CONTINUATION':
+            # Only enter on continuation if we're flat (no position)
+            if current_position is not None:
+                print(f"BULL CONTINUATION - Skipping, already in {current_position}")
+                return jsonify({'status': 'skipped', 'reason': f'Already in {current_position} position'})
+            print("BULL CONTINUATION - Entering LONG (was flat)")
+            result = execute_bull_break(price)
+            return jsonify({'status': 'LONG opened on continuation', 'entry_price': price, 'result': result})
+
+        elif signal == 'BEAR_CONTINUATION':
+            # Only enter on continuation if we're flat (no position)
+            if current_position is not None:
+                print(f"BEAR CONTINUATION - Skipping, already in {current_position}")
+                return jsonify({'status': 'skipped', 'reason': f'Already in {current_position} position'})
+            print("BEAR CONTINUATION - Entering SHORT (was flat)")
+            result = execute_bear_break(price)
+            return jsonify({'status': 'SHORT opened on continuation', 'entry_price': price, 'result': result})
 
         else:
             return jsonify({'error': f'Unknown signal: {signal}'}), 400
@@ -554,8 +573,10 @@ def home():
         <li>POST /webhook - Receive TradingView alerts</li>
         <li>GET /status - Check bot status</li>
         <li>POST /close - Close all positions</li>
+        <li>GET /check - Check if breakout still valid (for cron)</li>
     </ul>
-    <p>Strategy: MXS Bull/Bear Break</p>
+    <p>Strategy: MXS Bull/Bear Break + Continuations</p>
+    <p>Signals: BULL_BREAK, BEAR_BREAK, BULL_CONTINUATION, BEAR_CONTINUATION</p>
     <p>Symbol: FARTCOIN-USDT</p>
     <p>Leverage: 3x</p>
     <p>Stop Loss: 10%</p>
