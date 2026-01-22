@@ -151,22 +151,21 @@ def get_price(symbol):
     return None
 
 # =============================================================================
-# POSITION SIZING WITH 1% RISK
+# POSITION SIZING - FULL ACCOUNT
 # =============================================================================
 def calc_position_size(balance, entry, stop):
-    risk_amount = balance * RISK_PER_TRADE
+    # Full account position sizing
+    position_value = balance * LEVERAGE
+    position_size = position_value / entry
+
     stop_distance = abs(entry - stop)
-
-    if stop_distance == 0:
-        print("[ERROR] Stop distance is 0, using fallback")
-        return int((balance * 0.10 * LEVERAGE) / entry)
-
-    position_size = risk_amount / stop_distance
+    stop_pct = (stop_distance / entry) * 100
 
     print(f"[SIZING] Balance: ${balance:.2f}")
-    print(f"[SIZING] Risk (1%): ${risk_amount:.2f}")
+    print(f"[SIZING] Leverage: {LEVERAGE}x")
+    print(f"[SIZING] Position Value: ${position_value:.2f}")
     print(f"[SIZING] Entry: ${entry:.4f}, Stop: ${stop:.4f}")
-    print(f"[SIZING] Stop Distance: ${stop_distance:.4f} ({(stop_distance/entry)*100:.2f}%)")
+    print(f"[SIZING] Stop Distance: {stop_pct:.2f}%")
     print(f"[SIZING] Position Size: {int(position_size)} contracts")
 
     return int(position_size)
