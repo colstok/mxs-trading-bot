@@ -1,7 +1,10 @@
 """
 MXS Multi-Timeframe Webhook Trading Bot
-30-min trend filter + 5-min entries
-1% risk per trade, stops at swing levels
+Higher TF trend + Lower TF entries
+- Lower TF (5M) for entries only
+- Higher TF (30M) for exits and trend
+- 1% risk per trade
+- 2% stop buffer from higher TF swing levels
 """
 
 import os
@@ -31,7 +34,7 @@ BASE_URL = "https://demo-trading-openapi.blofin.com"
 SYMBOL = "FARTCOIN-USDT"
 LEVERAGE = 3
 RISK_PER_TRADE = 0.01  # 1% of account per trade
-STOP_BUFFER = 0.01     # 1% buffer beyond swing level
+STOP_BUFFER = 0.02     # 2% buffer beyond swing level
 MARGIN_MODE = "cross"
 
 # =============================================================================
@@ -47,10 +50,24 @@ def load_state():
             return state
     except:
         print("[STARTUP] No saved state, starting fresh")
-        return {'trend': None, 'position': None, 'entry': None, 'stop': None}
+        return {
+            'trend': None,
+            'position': None,
+            'entry': None,
+            'stop': None,
+            'htf_swing_low': None,   # Higher timeframe swing low
+            'htf_swing_high': None   # Higher timeframe swing high
+        }
 
-def save_state(trend, position, entry, stop=None):
-    state = {'trend': trend, 'position': position, 'entry': entry, 'stop': stop}
+def save_state(trend, position, entry, stop, htf_swing_low, htf_swing_high):
+    state = {
+        'trend': trend,
+        'position': position,
+        'entry': entry,
+        'stop': stop,
+        'htf_swing_low': htf_swing_low,
+        'htf_swing_high': htf_swing_high
+    }
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f)
     print(f"[STATE SAVED] {state}")
@@ -61,6 +78,8 @@ trend_state = _s.get('trend')
 current_position = _s.get('position')
 entry_price = _s.get('entry')
 stop_price = _s.get('stop')
+htf_swing_low = _s.get('htf_swing_low')
+htf_swing_high = _s.get('htf_swing_high')
 
 # =============================================================================
 # BLOFIN API
@@ -135,23 +154,14 @@ def get_price(symbol):
 # POSITION SIZING WITH 1% RISK
 # =============================================================================
 def calc_position_size(balance, entry, stop):
-    """
-    Calculate position size for 1% account risk
-    Risk Amount = Balance * 1%
-    Position Size = Risk Amount / |Entry - Stop|
-    """
     risk_amount = balance * RISK_PER_TRADE
     stop_distance = abs(entry - stop)
 
     if stop_distance == 0:
         print("[ERROR] Stop distance is 0, using fallback")
-        return int((balance * 0.10 * LEVERAGE) / entry)  # Fallback to 10% of account
+        return int((balance * 0.10 * LEVERAGE) / entry)
 
-    # Position size in units
     position_size = risk_amount / stop_distance
-
-    # With leverage, we need less margin
-    # But position size stays the same (we're sizing based on risk, not margin)
 
     print(f"[SIZING] Balance: ${balance:.2f}")
     print(f"[SIZING] Risk (1%): ${risk_amount:.2f}")
@@ -167,13 +177,13 @@ def calc_position_size(balance, entry, stop):
 def enter_long(price, swing_low):
     global current_position, entry_price, stop_price
 
-    # Stop 1% below swing low
+    # Stop 2% below swing low (using higher TF swing)
     stop = swing_low * (1 - STOP_BUFFER)
 
     print(f"\n{'='*50}")
     print(f"ENTERING LONG @ ${price:.4f}")
-    print(f"Swing Low: ${swing_low:.4f}")
-    print(f"Stop (1% below): ${stop:.4f}")
+    print(f"HTF Swing Low: ${swing_low:.4f}")
+    print(f"Stop (2% below): ${stop:.4f}")
     print(f"{'='*50}")
 
     if current_position == 'SHORT':
@@ -195,19 +205,19 @@ def enter_long(price, swing_low):
         current_position = 'LONG'
         entry_price = price
         stop_price = stop
-        save_state(trend_state, current_position, entry_price, stop_price)
+        save_state(trend_state, current_position, entry_price, stop_price, htf_swing_low, htf_swing_high)
     return result
 
 def enter_short(price, swing_high):
     global current_position, entry_price, stop_price
 
-    # Stop 1% above swing high
+    # Stop 2% above swing high (using higher TF swing)
     stop = swing_high * (1 + STOP_BUFFER)
 
     print(f"\n{'='*50}")
     print(f"ENTERING SHORT @ ${price:.4f}")
-    print(f"Swing High: ${swing_high:.4f}")
-    print(f"Stop (1% above): ${stop:.4f}")
+    print(f"HTF Swing High: ${swing_high:.4f}")
+    print(f"Stop (2% above): ${stop:.4f}")
     print(f"{'='*50}")
 
     if current_position == 'LONG':
@@ -229,12 +239,12 @@ def enter_short(price, swing_high):
         current_position = 'SHORT'
         entry_price = price
         stop_price = stop
-        save_state(trend_state, current_position, entry_price, stop_price)
+        save_state(trend_state, current_position, entry_price, stop_price, htf_swing_low, htf_swing_high)
     return result
 
 def exit_position(price):
     global current_position, entry_price, stop_price
-    print(f"\n=== EXITING {current_position} ===")
+    print(f"\n=== EXITING {current_position} @ ${price:.4f} ===")
 
     if current_position == 'LONG':
         close_position(SYMBOL, 'buy')
@@ -246,7 +256,7 @@ def exit_position(price):
     current_position = None
     entry_price = None
     stop_price = None
-    save_state(trend_state, current_position, entry_price, stop_price)
+    save_state(trend_state, current_position, entry_price, stop_price, htf_swing_low, htf_swing_high)
     return {'status': 'closed'}
 
 # =============================================================================
@@ -254,7 +264,7 @@ def exit_position(price):
 # =============================================================================
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    global trend_state, current_position, entry_price, stop_price
+    global trend_state, current_position, entry_price, stop_price, htf_swing_low, htf_swing_high
 
     try:
         data = request.json
@@ -271,48 +281,89 @@ def webhook():
         print(f"\n{'='*60}")
         print(f"SIGNAL: {signal} @ ${price:.4f}")
         print(f"Swing Low: {swing_low}, Swing High: {swing_high}")
+        print(f"HTF Swings: Low={htf_swing_low}, High={htf_swing_high}")
         print(f"STATE: trend={trend_state}, pos={current_position}")
         print(f"{'='*60}")
 
-        # 30M - Set trend
+        # =====================================================================
+        # 30M (HIGHER TF) - Set trend, store swings, exit on flip
+        # =====================================================================
         if signal == '30M_BULL_BREAK':
+            old_trend = trend_state
             trend_state = 'BULL'
-            save_state(trend_state, current_position, entry_price, stop_price)
+
+            # Store higher timeframe swing levels
+            if swing_low:
+                htf_swing_low = swing_low
+            if swing_high:
+                htf_swing_high = swing_high
+
+            print(f"30M BULL -> Trend: {old_trend} -> BULL")
+            print(f"HTF Swings updated: Low={htf_swing_low}, High={htf_swing_high}")
+
+            # Exit SHORT on trend flip (30M controls exits)
             if current_position == 'SHORT':
+                print("30M flipped BULL - CLOSING SHORT")
                 exit_position(price)
-            return jsonify({'status': 'trend_updated', 'trend': 'BULL'})
+
+            save_state(trend_state, current_position, entry_price, stop_price, htf_swing_low, htf_swing_high)
+            return jsonify({'status': 'trend_updated', 'trend': 'BULL', 'htf_swing_low': htf_swing_low})
 
         elif signal == '30M_BEAR_BREAK':
+            old_trend = trend_state
             trend_state = 'BEAR'
-            save_state(trend_state, current_position, entry_price, stop_price)
+
+            # Store higher timeframe swing levels
+            if swing_low:
+                htf_swing_low = swing_low
+            if swing_high:
+                htf_swing_high = swing_high
+
+            print(f"30M BEAR -> Trend: {old_trend} -> BEAR")
+            print(f"HTF Swings updated: Low={htf_swing_low}, High={htf_swing_high}")
+
+            # Exit LONG on trend flip (30M controls exits)
             if current_position == 'LONG':
+                print("30M flipped BEAR - CLOSING LONG")
                 exit_position(price)
-            return jsonify({'status': 'trend_updated', 'trend': 'BEAR'})
 
-        # 5M - Entries with swing-based stops
+            save_state(trend_state, current_position, entry_price, stop_price, htf_swing_low, htf_swing_high)
+            return jsonify({'status': 'trend_updated', 'trend': 'BEAR', 'htf_swing_high': htf_swing_high})
+
+        # =====================================================================
+        # 5M (LOWER TF) - Entries only, NO exits on opposite signal
+        # =====================================================================
         elif signal == '5M_BULL_BREAK':
-            if current_position == 'SHORT':
-                exit_position(price)
+            print(f"5M BULL BREAK - Trend is {trend_state}")
 
+            # Only enter if trend is BULL and not already LONG
             if trend_state == 'BULL' and current_position != 'LONG':
-                if swing_low:
-                    result = enter_long(price, swing_low)
-                    return jsonify({'status': 'LONG_ENTERED', 'stop': swing_low * 0.99, 'result': result})
+                # Use higher TF swing low for stop
+                sl = htf_swing_low if htf_swing_low else swing_low
+                if sl:
+                    result = enter_long(price, sl)
+                    return jsonify({'status': 'LONG_ENTERED', 'stop': sl * (1-STOP_BUFFER), 'result': result})
                 else:
-                    return jsonify({'status': 'no_entry', 'reason': 'missing swing_low'})
-            return jsonify({'status': 'no_entry', 'reason': f'trend={trend_state}'})
+                    return jsonify({'status': 'no_entry', 'reason': 'no swing_low available'})
+
+            # Do NOT exit SHORT on 5M bull break - only 30M exits
+            return jsonify({'status': 'no_action', 'reason': f'trend={trend_state}, pos={current_position}'})
 
         elif signal == '5M_BEAR_BREAK':
-            if current_position == 'LONG':
-                exit_position(price)
+            print(f"5M BEAR BREAK - Trend is {trend_state}")
 
+            # Only enter if trend is BEAR and not already SHORT
             if trend_state == 'BEAR' and current_position != 'SHORT':
-                if swing_high:
-                    result = enter_short(price, swing_high)
-                    return jsonify({'status': 'SHORT_ENTERED', 'stop': swing_high * 1.01, 'result': result})
+                # Use higher TF swing high for stop
+                sh = htf_swing_high if htf_swing_high else swing_high
+                if sh:
+                    result = enter_short(price, sh)
+                    return jsonify({'status': 'SHORT_ENTERED', 'stop': sh * (1+STOP_BUFFER), 'result': result})
                 else:
-                    return jsonify({'status': 'no_entry', 'reason': 'missing swing_high'})
-            return jsonify({'status': 'no_entry', 'reason': f'trend={trend_state}'})
+                    return jsonify({'status': 'no_entry', 'reason': 'no swing_high available'})
+
+            # Do NOT exit LONG on 5M bear break - only 30M exits
+            return jsonify({'status': 'no_action', 'reason': f'trend={trend_state}, pos={current_position}'})
 
         return jsonify({'error': f'Unknown signal: {signal}'}), 400
 
@@ -330,6 +381,8 @@ def status():
         'current_position': current_position,
         'entry_price': entry_price,
         'stop_price': stop_price,
+        'htf_swing_low': htf_swing_low,
+        'htf_swing_high': htf_swing_high,
         'current_price': get_price(SYMBOL),
         'balance': get_usdt_balance(),
         'risk_per_trade': f"{RISK_PER_TRADE*100}%",
@@ -345,7 +398,7 @@ def close_all():
 def set_trend_endpoint():
     global trend_state
     trend_state = request.json.get('trend', '').upper() or None
-    save_state(trend_state, current_position, entry_price, stop_price)
+    save_state(trend_state, current_position, entry_price, stop_price, htf_swing_low, htf_swing_high)
     return jsonify({'trend': trend_state})
 
 @app.route('/debug', methods=['GET'])
@@ -359,16 +412,32 @@ def get_debug():
 @app.route('/', methods=['GET'])
 def home():
     return f'''<h1>MXS Multi-TF Bot</h1>
-    <p><b>Trend:</b> {trend_state} | <b>Position:</b> {current_position}</p>
-    <p><b>Entry:</b> {entry_price} | <b>Stop:</b> {stop_price}</p>
-    <p><b>Risk:</b> {RISK_PER_TRADE*100}% per trade | <b>Stop Buffer:</b> {STOP_BUFFER*100}% beyond swing</p>
-    <p>30M sets trend, 5M enters if aligned. Stops at swing levels.</p>
-    <p><a href="/debug">View last webhook</a> | <a href="/status">Status JSON</a></p>'''
+    <h2>State</h2>
+    <ul>
+        <li><b>Trend (30M):</b> {trend_state}</li>
+        <li><b>Position:</b> {current_position}</li>
+        <li><b>Entry:</b> {entry_price}</li>
+        <li><b>Stop:</b> {stop_price}</li>
+    </ul>
+    <h2>HTF Swing Levels (30M)</h2>
+    <ul>
+        <li><b>Swing Low:</b> {htf_swing_low}</li>
+        <li><b>Swing High:</b> {htf_swing_high}</li>
+    </ul>
+    <h2>Strategy</h2>
+    <ul>
+        <li>30M sets trend + stores swing levels + exits positions</li>
+        <li>5M enters only (no exit on opposite signal)</li>
+        <li>Stop: 2% beyond 30M swing level</li>
+        <li>Risk: 1% per trade</li>
+    </ul>
+    <p><a href="/debug">Last webhook</a> | <a href="/status">Status JSON</a></p>'''
 
 if __name__ == '__main__':
     print(f"\n=== MXS BOT STARTED ===")
-    print(f"Risk: {RISK_PER_TRADE*100}% per trade")
-    print(f"Stop Buffer: {STOP_BUFFER*100}% beyond swing")
+    print(f"Strategy: 30M trend/exits, 5M entries only")
+    print(f"Risk: {RISK_PER_TRADE*100}% | Stop Buffer: {STOP_BUFFER*100}%")
     print(f"Trend: {trend_state} | Position: {current_position}")
+    print(f"HTF Swings: Low={htf_swing_low}, High={htf_swing_high}")
     print(f"===========================\n")
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
