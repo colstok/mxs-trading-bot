@@ -32,10 +32,10 @@ PASSPHRASE = os.environ.get('BLOFIN_PASSPHRASE', 'your-passphrase')
 BASE_URL = "https://demo-trading-openapi.blofin.com"
 
 SYMBOL = "FARTCOIN-USDT"
-LEVERAGE = 3
+LEVERAGE = 6
 RISK_PER_TRADE = 0.01  # 1% of account per trade
 STOP_BUFFER = 0.02     # 2% buffer beyond swing level
-MARGIN_MODE = "cross"
+MARGIN_MODE = "isolated"
 
 # =============================================================================
 # STATE PERSISTENCE
@@ -385,6 +385,8 @@ def status():
         'htf_swing_high': htf_swing_high,
         'current_price': get_price(SYMBOL),
         'balance': get_usdt_balance(),
+        'leverage': f"{LEVERAGE}x",
+        'margin_mode': MARGIN_MODE,
         'risk_per_trade': f"{RISK_PER_TRADE*100}%",
         'stop_buffer': f"{STOP_BUFFER*100}%"
     })
@@ -430,12 +432,14 @@ def home():
         <li>5M enters only (no exit on opposite signal)</li>
         <li>Stop: 2% beyond 30M swing level</li>
         <li>Risk: 1% per trade</li>
+        <li><b>Leverage: {LEVERAGE}x ({MARGIN_MODE} margin)</b></li>
     </ul>
     <p><a href="/debug">Last webhook</a> | <a href="/status">Status JSON</a></p>'''
 
 if __name__ == '__main__':
     print(f"\n=== MXS BOT STARTED ===")
     print(f"Strategy: 30M trend/exits, 5M entries only")
+    print(f"Leverage: {LEVERAGE}x | Margin: {MARGIN_MODE}")
     print(f"Risk: {RISK_PER_TRADE*100}% | Stop Buffer: {STOP_BUFFER*100}%")
     print(f"Trend: {trend_state} | Position: {current_position}")
     print(f"HTF Swings: Low={htf_swing_low}, High={htf_swing_high}")
