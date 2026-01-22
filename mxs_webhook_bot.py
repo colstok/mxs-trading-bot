@@ -32,7 +32,7 @@ PASSPHRASE = os.environ.get('BLOFIN_PASSPHRASE', 'your-passphrase')
 BASE_URL = "https://demo-trading-openapi.blofin.com"
 
 SYMBOL = "FARTCOIN-USDT"
-LEVERAGE = 6
+LEVERAGE = 10
 RISK_PER_TRADE = 0.01  # 1% of account per trade
 STOP_BUFFER = 0.02     # 2% buffer beyond swing level
 MARGIN_MODE = "isolated"
