@@ -204,11 +204,17 @@ def webhook():
 
     try:
         data = request.json
+
+        # Save raw webhook for debugging
+        with open('last_webhook.json', 'w') as f:
+            json.dump({'received_at': datetime.now().isoformat(), 'data': data}, f, indent=2)
+
         signal = data.get('signal', '').upper()
         price = float(data.get('price', 0)) or get_price(SYMBOL)
 
         print(f"\n{'='*60}")
         print(f"SIGNAL: {signal} @ ${price:.4f}")
+        print(f"RAW DATA: {data}")
         print(f"STATE: trend={trend_state}, pos={current_position}")
         print(f"{'='*60}")
 
@@ -275,11 +281,21 @@ def set_trend_endpoint():
     save_state(trend_state, current_position, entry_price)
     return jsonify({'trend': trend_state})
 
+@app.route('/debug', methods=['GET'])
+def get_debug():
+    """Show last received webhook for testing"""
+    try:
+        with open('last_webhook.json', 'r') as f:
+            return jsonify(json.load(f))
+    except:
+        return jsonify({'msg': 'No webhook received yet'})
+
 @app.route('/', methods=['GET'])
 def home():
     return f'''<h1>MXS Multi-TF Bot</h1>
     <p><b>Trend:</b> {trend_state} | <b>Position:</b> {current_position} | <b>Entry:</b> {entry_price}</p>
-    <p>30M sets trend, 5M enters if aligned. State persisted to file.</p>'''
+    <p>30M sets trend, 5M enters if aligned. State persisted to file.</p>
+    <p><a href="/debug">View last webhook data</a></p>'''
 
 if __name__ == '__main__':
     print(f"\n=== MXS BOT STARTED ===")
