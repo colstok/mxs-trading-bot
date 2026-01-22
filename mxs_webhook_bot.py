@@ -1,7 +1,7 @@
 """
 MXS Multi-Timeframe Webhook Trading Bot
 30-min trend filter + 5-min entries
-BloFin Demo Trading
+1% risk per trade, stops at swing levels
 """
 
 import os
@@ -30,7 +30,8 @@ BASE_URL = "https://demo-trading-openapi.blofin.com"
 
 SYMBOL = "FARTCOIN-USDT"
 LEVERAGE = 3
-STOP_LOSS_PCT = 0.10
+RISK_PER_TRADE = 0.01  # 1% of account per trade
+STOP_BUFFER = 0.01     # 1% buffer beyond swing level
 MARGIN_MODE = "cross"
 
 # =============================================================================
@@ -46,10 +47,10 @@ def load_state():
             return state
     except:
         print("[STARTUP] No saved state, starting fresh")
-        return {'trend': None, 'position': None, 'entry': None}
+        return {'trend': None, 'position': None, 'entry': None, 'stop': None}
 
-def save_state(trend, position, entry):
-    state = {'trend': trend, 'position': position, 'entry': entry}
+def save_state(trend, position, entry, stop=None):
+    state = {'trend': trend, 'position': position, 'entry': entry, 'stop': stop}
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f)
     print(f"[STATE SAVED] {state}")
@@ -59,6 +60,7 @@ _s = load_state()
 trend_state = _s.get('trend')
 current_position = _s.get('position')
 entry_price = _s.get('entry')
+stop_price = _s.get('stop')
 
 # =============================================================================
 # BLOFIN API
@@ -130,14 +132,49 @@ def get_price(symbol):
     return None
 
 # =============================================================================
+# POSITION SIZING WITH 1% RISK
+# =============================================================================
+def calc_position_size(balance, entry, stop):
+    """
+    Calculate position size for 1% account risk
+    Risk Amount = Balance * 1%
+    Position Size = Risk Amount / |Entry - Stop|
+    """
+    risk_amount = balance * RISK_PER_TRADE
+    stop_distance = abs(entry - stop)
+
+    if stop_distance == 0:
+        print("[ERROR] Stop distance is 0, using fallback")
+        return int((balance * 0.10 * LEVERAGE) / entry)  # Fallback to 10% of account
+
+    # Position size in units
+    position_size = risk_amount / stop_distance
+
+    # With leverage, we need less margin
+    # But position size stays the same (we're sizing based on risk, not margin)
+
+    print(f"[SIZING] Balance: ${balance:.2f}")
+    print(f"[SIZING] Risk (1%): ${risk_amount:.2f}")
+    print(f"[SIZING] Entry: ${entry:.4f}, Stop: ${stop:.4f}")
+    print(f"[SIZING] Stop Distance: ${stop_distance:.4f} ({(stop_distance/entry)*100:.2f}%)")
+    print(f"[SIZING] Position Size: {int(position_size)} contracts")
+
+    return int(position_size)
+
+# =============================================================================
 # TRADING
 # =============================================================================
-def calc_size(balance, price):
-    return int((balance * 0.90 * LEVERAGE) / price)
+def enter_long(price, swing_low):
+    global current_position, entry_price, stop_price
 
-def enter_long(price):
-    global current_position, entry_price
-    print(f"\n=== ENTERING LONG @ ${price:.4f} ===")
+    # Stop 1% below swing low
+    stop = swing_low * (1 - STOP_BUFFER)
+
+    print(f"\n{'='*50}")
+    print(f"ENTERING LONG @ ${price:.4f}")
+    print(f"Swing Low: ${swing_low:.4f}")
+    print(f"Stop (1% below): ${stop:.4f}")
+    print(f"{'='*50}")
 
     if current_position == 'SHORT':
         close_position(SYMBOL, 'sell')
@@ -146,20 +183,32 @@ def enter_long(price):
     if bal <= 0:
         return {'error': 'no balance'}
 
-    size = calc_size(bal, price)
-    sl = price * (1 - STOP_LOSS_PCT)
+    size = calc_position_size(bal, price, stop)
+
+    if size <= 0:
+        return {'error': 'position size too small'}
+
     set_leverage(SYMBOL, LEVERAGE)
-    result = place_order(SYMBOL, 'buy', size, sl)
+    result = place_order(SYMBOL, 'buy', size, stop)
 
     if result.get('code') == '0':
         current_position = 'LONG'
         entry_price = price
-        save_state(trend_state, current_position, entry_price)
+        stop_price = stop
+        save_state(trend_state, current_position, entry_price, stop_price)
     return result
 
-def enter_short(price):
-    global current_position, entry_price
-    print(f"\n=== ENTERING SHORT @ ${price:.4f} ===")
+def enter_short(price, swing_high):
+    global current_position, entry_price, stop_price
+
+    # Stop 1% above swing high
+    stop = swing_high * (1 + STOP_BUFFER)
+
+    print(f"\n{'='*50}")
+    print(f"ENTERING SHORT @ ${price:.4f}")
+    print(f"Swing High: ${swing_high:.4f}")
+    print(f"Stop (1% above): ${stop:.4f}")
+    print(f"{'='*50}")
 
     if current_position == 'LONG':
         close_position(SYMBOL, 'buy')
@@ -168,19 +217,23 @@ def enter_short(price):
     if bal <= 0:
         return {'error': 'no balance'}
 
-    size = calc_size(bal, price)
-    sl = price * (1 + STOP_LOSS_PCT)
+    size = calc_position_size(bal, price, stop)
+
+    if size <= 0:
+        return {'error': 'position size too small'}
+
     set_leverage(SYMBOL, LEVERAGE)
-    result = place_order(SYMBOL, 'sell', size, sl)
+    result = place_order(SYMBOL, 'sell', size, stop)
 
     if result.get('code') == '0':
         current_position = 'SHORT'
         entry_price = price
-        save_state(trend_state, current_position, entry_price)
+        stop_price = stop
+        save_state(trend_state, current_position, entry_price, stop_price)
     return result
 
 def exit_position(price):
-    global current_position, entry_price
+    global current_position, entry_price, stop_price
     print(f"\n=== EXITING {current_position} ===")
 
     if current_position == 'LONG':
@@ -192,7 +245,8 @@ def exit_position(price):
 
     current_position = None
     entry_price = None
-    save_state(trend_state, current_position, entry_price)
+    stop_price = None
+    save_state(trend_state, current_position, entry_price, stop_price)
     return {'status': 'closed'}
 
 # =============================================================================
@@ -200,7 +254,7 @@ def exit_position(price):
 # =============================================================================
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    global trend_state, current_position, entry_price
+    global trend_state, current_position, entry_price, stop_price
 
     try:
         data = request.json
@@ -211,43 +265,53 @@ def webhook():
 
         signal = data.get('signal', '').upper()
         price = float(data.get('price', 0)) or get_price(SYMBOL)
+        swing_low = float(data.get('swing_low', 0)) if data.get('swing_low') else None
+        swing_high = float(data.get('swing_high', 0)) if data.get('swing_high') else None
 
         print(f"\n{'='*60}")
         print(f"SIGNAL: {signal} @ ${price:.4f}")
-        print(f"RAW DATA: {data}")
+        print(f"Swing Low: {swing_low}, Swing High: {swing_high}")
         print(f"STATE: trend={trend_state}, pos={current_position}")
         print(f"{'='*60}")
 
         # 30M - Set trend
         if signal == '30M_BULL_BREAK':
             trend_state = 'BULL'
-            save_state(trend_state, current_position, entry_price)
+            save_state(trend_state, current_position, entry_price, stop_price)
             if current_position == 'SHORT':
                 exit_position(price)
             return jsonify({'status': 'trend_updated', 'trend': 'BULL'})
 
         elif signal == '30M_BEAR_BREAK':
             trend_state = 'BEAR'
-            save_state(trend_state, current_position, entry_price)
+            save_state(trend_state, current_position, entry_price, stop_price)
             if current_position == 'LONG':
                 exit_position(price)
             return jsonify({'status': 'trend_updated', 'trend': 'BEAR'})
 
-        # 5M - Entries
+        # 5M - Entries with swing-based stops
         elif signal == '5M_BULL_BREAK':
             if current_position == 'SHORT':
                 exit_position(price)
+
             if trend_state == 'BULL' and current_position != 'LONG':
-                result = enter_long(price)
-                return jsonify({'status': 'LONG_ENTERED', 'result': result})
+                if swing_low:
+                    result = enter_long(price, swing_low)
+                    return jsonify({'status': 'LONG_ENTERED', 'stop': swing_low * 0.99, 'result': result})
+                else:
+                    return jsonify({'status': 'no_entry', 'reason': 'missing swing_low'})
             return jsonify({'status': 'no_entry', 'reason': f'trend={trend_state}'})
 
         elif signal == '5M_BEAR_BREAK':
             if current_position == 'LONG':
                 exit_position(price)
+
             if trend_state == 'BEAR' and current_position != 'SHORT':
-                result = enter_short(price)
-                return jsonify({'status': 'SHORT_ENTERED', 'result': result})
+                if swing_high:
+                    result = enter_short(price, swing_high)
+                    return jsonify({'status': 'SHORT_ENTERED', 'stop': swing_high * 1.01, 'result': result})
+                else:
+                    return jsonify({'status': 'no_entry', 'reason': 'missing swing_high'})
             return jsonify({'status': 'no_entry', 'reason': f'trend={trend_state}'})
 
         return jsonify({'error': f'Unknown signal: {signal}'}), 400
@@ -265,8 +329,11 @@ def status():
         'trend_state': trend_state,
         'current_position': current_position,
         'entry_price': entry_price,
+        'stop_price': stop_price,
         'current_price': get_price(SYMBOL),
-        'balance': get_usdt_balance()
+        'balance': get_usdt_balance(),
+        'risk_per_trade': f"{RISK_PER_TRADE*100}%",
+        'stop_buffer': f"{STOP_BUFFER*100}%"
     })
 
 @app.route('/close', methods=['POST'])
@@ -278,12 +345,11 @@ def close_all():
 def set_trend_endpoint():
     global trend_state
     trend_state = request.json.get('trend', '').upper() or None
-    save_state(trend_state, current_position, entry_price)
+    save_state(trend_state, current_position, entry_price, stop_price)
     return jsonify({'trend': trend_state})
 
 @app.route('/debug', methods=['GET'])
 def get_debug():
-    """Show last received webhook for testing"""
     try:
         with open('last_webhook.json', 'r') as f:
             return jsonify(json.load(f))
@@ -293,12 +359,16 @@ def get_debug():
 @app.route('/', methods=['GET'])
 def home():
     return f'''<h1>MXS Multi-TF Bot</h1>
-    <p><b>Trend:</b> {trend_state} | <b>Position:</b> {current_position} | <b>Entry:</b> {entry_price}</p>
-    <p>30M sets trend, 5M enters if aligned. State persisted to file.</p>
-    <p><a href="/debug">View last webhook data</a></p>'''
+    <p><b>Trend:</b> {trend_state} | <b>Position:</b> {current_position}</p>
+    <p><b>Entry:</b> {entry_price} | <b>Stop:</b> {stop_price}</p>
+    <p><b>Risk:</b> {RISK_PER_TRADE*100}% per trade | <b>Stop Buffer:</b> {STOP_BUFFER*100}% beyond swing</p>
+    <p>30M sets trend, 5M enters if aligned. Stops at swing levels.</p>
+    <p><a href="/debug">View last webhook</a> | <a href="/status">Status JSON</a></p>'''
 
 if __name__ == '__main__':
     print(f"\n=== MXS BOT STARTED ===")
+    print(f"Risk: {RISK_PER_TRADE*100}% per trade")
+    print(f"Stop Buffer: {STOP_BUFFER*100}% beyond swing")
     print(f"Trend: {trend_state} | Position: {current_position}")
     print(f"===========================\n")
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
