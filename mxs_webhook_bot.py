@@ -16,7 +16,6 @@ from flask import Flask, request, jsonify
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Load .env file
 load_dotenv()
 
 app = Flask(__name__)
@@ -27,525 +26,263 @@ app = Flask(__name__)
 API_KEY = os.environ.get('BLOFIN_API_KEY', 'your-api-key')
 API_SECRET = os.environ.get('BLOFIN_API_SECRET', 'your-api-secret')
 PASSPHRASE = os.environ.get('BLOFIN_PASSPHRASE', 'your-passphrase')
-
-# Demo trading base URL
 BASE_URL = "https://demo-trading-openapi.blofin.com"
 
-# Strategy settings
 SYMBOL = "FARTCOIN-USDT"
 LEVERAGE = 3
-STOP_LOSS_PCT = 0.10  # 10% stop loss
+STOP_LOSS_PCT = 0.10
 MARGIN_MODE = "cross"
 
 # =============================================================================
-# MULTI-TIMEFRAME STATE
+# STATE PERSISTENCE
 # =============================================================================
-trend_state = None      # 'BULL' or 'BEAR' or None (from 30-min)
-current_position = None # 'LONG' or 'SHORT' or None
-entry_price = None
+STATE_FILE = 'bot_state.json'
+
+def load_state():
+    try:
+        with open(STATE_FILE, 'r') as f:
+            state = json.load(f)
+            print(f"[STARTUP] Loaded state: {state}")
+            return state
+    except:
+        print("[STARTUP] No saved state, starting fresh")
+        return {'trend': None, 'position': None, 'entry': None}
+
+def save_state(trend, position, entry):
+    state = {'trend': trend, 'position': position, 'entry': entry}
+    with open(STATE_FILE, 'w') as f:
+        json.dump(state, f)
+    print(f"[STATE SAVED] {state}")
+
+# Load on startup
+_s = load_state()
+trend_state = _s.get('trend')
+current_position = _s.get('position')
+entry_price = _s.get('entry')
 
 # =============================================================================
-# BLOFIN API FUNCTIONS
+# BLOFIN API
 # =============================================================================
-
 def get_timestamp():
     return str(int(time.time() * 1000))
 
 def get_nonce():
     return str(uuid.uuid4())
 
-def sign_request(request_path, method, timestamp, nonce, body=''):
-    message = request_path + method.upper() + timestamp + nonce + body
-    mac = hmac.new(
-        bytes(API_SECRET, encoding='utf-8'),
-        bytes(message, encoding='utf-8'),
-        digestmod=hashlib.sha256
-    )
-    hex_digest = mac.hexdigest()
-    return base64.b64encode(bytes(hex_digest, encoding='utf-8')).decode()
+def sign_request(path, method, ts, nonce, body=''):
+    msg = path + method.upper() + ts + nonce + body
+    mac = hmac.new(bytes(API_SECRET, 'utf-8'), bytes(msg, 'utf-8'), hashlib.sha256)
+    return base64.b64encode(bytes(mac.hexdigest(), 'utf-8')).decode()
 
 def api_request(method, endpoint, data=None):
-    timestamp = get_timestamp()
+    ts = get_timestamp()
     nonce = get_nonce()
     body = json.dumps(data, separators=(',', ':')) if data else ''
-    signature = sign_request(endpoint, method, timestamp, nonce, body)
-
+    sig = sign_request(endpoint, method, ts, nonce, body)
     headers = {
-        'ACCESS-KEY': API_KEY,
-        'ACCESS-SIGN': signature,
-        'ACCESS-TIMESTAMP': timestamp,
-        'ACCESS-PASSPHRASE': PASSPHRASE,
-        'ACCESS-NONCE': nonce,
-        'Content-Type': 'application/json'
+        'ACCESS-KEY': API_KEY, 'ACCESS-SIGN': sig, 'ACCESS-TIMESTAMP': ts,
+        'ACCESS-PASSPHRASE': PASSPHRASE, 'ACCESS-NONCE': nonce, 'Content-Type': 'application/json'
     }
-
-    url = BASE_URL + endpoint
-
     try:
         if method == 'GET':
-            response = requests.get(url, headers=headers)
-        elif method == 'POST':
-            response = requests.post(url, headers=headers, data=body)
-        return response.json()
+            return requests.get(BASE_URL + endpoint, headers=headers).json()
+        return requests.post(BASE_URL + endpoint, headers=headers, data=body).json()
     except Exception as e:
-        print(f"API Error: {e}")
         return {'code': '-1', 'msg': str(e)}
 
-def get_account_balance():
-    return api_request('GET', '/api/v1/account/balance')
-
 def get_usdt_balance():
-    result = get_account_balance()
-    if result.get('code') == '0':
-        data = result.get('data', {})
-        details = data.get('details', [])
-        for asset in details:
-            if asset.get('currency') == 'USDT':
-                return float(asset.get('available', 0))
+    r = api_request('GET', '/api/v1/account/balance')
+    if r.get('code') == '0':
+        for a in r.get('data', {}).get('details', []):
+            if a.get('currency') == 'USDT':
+                return float(a.get('available', 0))
     return 0
 
 def get_positions():
     return api_request('GET', '/api/v1/account/positions')
 
-def set_leverage(symbol, leverage):
-    data = {
-        'instId': symbol,
-        'leverage': str(leverage),
-        'marginMode': MARGIN_MODE
-    }
-    return api_request('POST', '/api/v1/account/set-leverage', data)
+def set_leverage(symbol, lev):
+    return api_request('POST', '/api/v1/account/set-leverage',
+                       {'instId': symbol, 'leverage': str(lev), 'marginMode': MARGIN_MODE})
 
-def place_order(symbol, side, size, order_type='market', sl_trigger=None):
-    data = {
-        'instId': symbol,
-        'marginMode': MARGIN_MODE,
-        'positionSide': 'net',
-        'side': side,
-        'orderType': order_type,
-        'size': str(size)
-    }
-    if sl_trigger:
-        data['slTriggerPrice'] = str(sl_trigger)
+def place_order(symbol, side, size, sl=None):
+    data = {'instId': symbol, 'marginMode': MARGIN_MODE, 'positionSide': 'net',
+            'side': side, 'orderType': 'market', 'size': str(size)}
+    if sl:
+        data['slTriggerPrice'] = str(sl)
         data['slOrderPrice'] = '-1'
     return api_request('POST', '/api/v1/trade/order', data)
 
 def close_position(symbol, side):
-    close_side = 'sell' if side == 'buy' else 'buy'
-    data = {
-        'instId': symbol,
-        'marginMode': MARGIN_MODE,
-        'positionSide': 'net',
-        'side': close_side,
-        'orderType': 'market',
-        'size': '0',
-        'reduceOnly': 'true'
-    }
-    return api_request('POST', '/api/v1/trade/close-position', data)
+    return api_request('POST', '/api/v1/trade/close-position',
+                       {'instId': symbol, 'marginMode': MARGIN_MODE, 'positionSide': 'net',
+                        'side': 'sell' if side == 'buy' else 'buy', 'orderType': 'market',
+                        'size': '0', 'reduceOnly': 'true'})
 
-def get_current_price(symbol):
+def get_price(symbol):
     try:
-        url = "https://openapi.blofin.com/api/v1/market/tickers"
-        response = requests.get(url, timeout=10)
-        result = response.json()
-        if result.get('code') == '0' and result.get('data'):
-            for ticker in result['data']:
-                if ticker.get('instId') == symbol:
-                    return float(ticker['last'])
-    except Exception as e:
-        print(f"Error getting price: {e}")
+        r = requests.get("https://openapi.blofin.com/api/v1/market/tickers", timeout=10).json()
+        for t in r.get('data', []):
+            if t.get('instId') == symbol:
+                return float(t['last'])
+    except:
+        pass
     return None
 
 # =============================================================================
-# TRADING FUNCTIONS
+# TRADING
 # =============================================================================
+def calc_size(balance, price):
+    return int((balance * 0.90 * LEVERAGE) / price)
 
-def calculate_position_size(balance, price, leverage):
-    usable_balance = balance * 0.90
-    notional = usable_balance * leverage
-    size = notional / price
-    return int(size)
-
-def execute_long(price):
-    """Enter LONG position"""
+def enter_long(price):
     global current_position, entry_price
+    print(f"\n=== ENTERING LONG @ ${price:.4f} ===")
 
-    print(f"\n{'='*50}")
-    print(f"ENTERING LONG")
-    print(f"Price: ${price:.4f}")
-    print(f"{'='*50}")
-
-    # Close SHORT if exists
     if current_position == 'SHORT':
-        print("Closing existing SHORT...")
-        result = close_position(SYMBOL, 'sell')
-        print(f"Close result: {result}")
+        close_position(SYMBOL, 'sell')
 
-    usdt_balance = get_usdt_balance()
-    if usdt_balance <= 0:
-        print("No USDT balance")
-        return {'error': 'No balance'}
+    bal = get_usdt_balance()
+    if bal <= 0:
+        return {'error': 'no balance'}
 
-    print(f"Balance: ${usdt_balance:.2f}")
-
-    size = calculate_position_size(usdt_balance, price, LEVERAGE)
-    stop_loss = price * (1 - STOP_LOSS_PCT)
-
-    print(f"Size: {size} contracts")
-    print(f"Stop: ${stop_loss:.4f}")
-
+    size = calc_size(bal, price)
+    sl = price * (1 - STOP_LOSS_PCT)
     set_leverage(SYMBOL, LEVERAGE)
-
-    result = place_order(
-        symbol=SYMBOL,
-        side='buy',
-        size=size,
-        sl_trigger=stop_loss
-    )
-
-    print(f"Order result: {result}")
+    result = place_order(SYMBOL, 'buy', size, sl)
 
     if result.get('code') == '0':
         current_position = 'LONG'
         entry_price = price
-        log_trade('LONG', price, stop_loss, size)
-
+        save_state(trend_state, current_position, entry_price)
     return result
 
-def execute_short(price):
-    """Enter SHORT position"""
+def enter_short(price):
     global current_position, entry_price
+    print(f"\n=== ENTERING SHORT @ ${price:.4f} ===")
 
-    print(f"\n{'='*50}")
-    print(f"ENTERING SHORT")
-    print(f"Price: ${price:.4f}")
-    print(f"{'='*50}")
-
-    # Close LONG if exists
     if current_position == 'LONG':
-        print("Closing existing LONG...")
-        result = close_position(SYMBOL, 'buy')
-        print(f"Close result: {result}")
+        close_position(SYMBOL, 'buy')
 
-    usdt_balance = get_usdt_balance()
-    if usdt_balance <= 0:
-        print("No USDT balance")
-        return {'error': 'No balance'}
+    bal = get_usdt_balance()
+    if bal <= 0:
+        return {'error': 'no balance'}
 
-    print(f"Balance: ${usdt_balance:.2f}")
-
-    size = calculate_position_size(usdt_balance, price, LEVERAGE)
-    stop_loss = price * (1 + STOP_LOSS_PCT)
-
-    print(f"Size: {size} contracts")
-    print(f"Stop: ${stop_loss:.4f}")
-
+    size = calc_size(bal, price)
+    sl = price * (1 + STOP_LOSS_PCT)
     set_leverage(SYMBOL, LEVERAGE)
-
-    result = place_order(
-        symbol=SYMBOL,
-        side='sell',
-        size=size,
-        sl_trigger=stop_loss
-    )
-
-    print(f"Order result: {result}")
+    result = place_order(SYMBOL, 'sell', size, sl)
 
     if result.get('code') == '0':
         current_position = 'SHORT'
         entry_price = price
-        log_trade('SHORT', price, stop_loss, size)
-
+        save_state(trend_state, current_position, entry_price)
     return result
 
 def exit_position(price):
-    """Exit current position without entering new one"""
     global current_position, entry_price
+    print(f"\n=== EXITING {current_position} ===")
 
     if current_position == 'LONG':
-        print("Exiting LONG (no new entry - trend not aligned)")
-        result = close_position(SYMBOL, 'buy')
-        print(f"Close result: {result}")
+        close_position(SYMBOL, 'buy')
     elif current_position == 'SHORT':
-        print("Exiting SHORT (no new entry - trend not aligned)")
-        result = close_position(SYMBOL, 'sell')
-        print(f"Close result: {result}")
+        close_position(SYMBOL, 'sell')
     else:
         return {'status': 'no position'}
 
     current_position = None
     entry_price = None
+    save_state(trend_state, current_position, entry_price)
     return {'status': 'closed'}
 
-def log_trade(direction, trade_price, stop_loss, size):
-    trade = {
-        'timestamp': datetime.now().isoformat(),
-        'direction': direction,
-        'entry_price': trade_price,
-        'stop_loss': stop_loss,
-        'size': size,
-        'leverage': LEVERAGE,
-        'symbol': SYMBOL,
-        'trend_state': trend_state
-    }
-
-    log_file = 'trade_log.json'
-
-    try:
-        with open(log_file, 'r') as f:
-            trades = json.load(f)
-    except:
-        trades = []
-
-    trades.append(trade)
-
-    with open(log_file, 'w') as f:
-        json.dump(trades, f, indent=2)
-
-    print(f"Trade logged")
-
 # =============================================================================
-# WEBHOOK ENDPOINT
+# WEBHOOK
 # =============================================================================
-
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """
-    Multi-Timeframe Strategy:
-
-    30M signals update trend state (no direct trades):
-      - 30M_BULL_BREAK -> trend_state = BULL
-      - 30M_BEAR_BREAK -> trend_state = BEAR
-
-    5M signals trigger trades IF aligned with trend:
-      - 5M_BULL_BREAK -> Enter LONG only if trend_state == BULL
-      - 5M_BEAR_BREAK -> Enter SHORT only if trend_state == BEAR
-
-    5M opposite signals always EXIT current position:
-      - 5M_BEAR_BREAK while LONG -> EXIT (but only enter SHORT if trend is BEAR)
-      - 5M_BULL_BREAK while SHORT -> EXIT (but only enter LONG if trend is BULL)
-    """
     global trend_state, current_position, entry_price
 
     try:
         data = request.json
+        signal = data.get('signal', '').upper()
+        price = float(data.get('price', 0)) or get_price(SYMBOL)
+
         print(f"\n{'='*60}")
-        print(f"WEBHOOK: {datetime.now()}")
-        print(f"Data: {data}")
-        print(f"Current State: trend={trend_state}, position={current_position}")
+        print(f"SIGNAL: {signal} @ ${price:.4f}")
+        print(f"STATE: trend={trend_state}, pos={current_position}")
         print(f"{'='*60}")
 
-        signal = data.get('signal', '').upper()
-        price = float(data.get('price', 0))
-        if price == 0:
-            price = get_current_price(SYMBOL)
-            if not price:
-                return jsonify({'error': 'Could not get price'}), 400
-
-        # =====================================================================
-        # 30-MINUTE SIGNALS - Update trend state only
-        # =====================================================================
-
+        # 30M - Set trend
         if signal == '30M_BULL_BREAK':
-            old_trend = trend_state
             trend_state = 'BULL'
-            print(f"30M BULL BREAK -> Trend updated: {old_trend} -> BULL")
-
-            # If we're SHORT, exit (trend flipped against us)
+            save_state(trend_state, current_position, entry_price)
             if current_position == 'SHORT':
-                print("Trend flipped to BULL while SHORT - exiting position")
                 exit_position(price)
-
-            return jsonify({
-                'status': 'trend_updated',
-                'trend': 'BULL',
-                'position': current_position
-            })
+            return jsonify({'status': 'trend_updated', 'trend': 'BULL'})
 
         elif signal == '30M_BEAR_BREAK':
-            old_trend = trend_state
             trend_state = 'BEAR'
-            print(f"30M BEAR BREAK -> Trend updated: {old_trend} -> BEAR")
-
-            # If we're LONG, exit (trend flipped against us)
+            save_state(trend_state, current_position, entry_price)
             if current_position == 'LONG':
-                print("Trend flipped to BEAR while LONG - exiting position")
                 exit_position(price)
+            return jsonify({'status': 'trend_updated', 'trend': 'BEAR'})
 
-            return jsonify({
-                'status': 'trend_updated',
-                'trend': 'BEAR',
-                'position': current_position
-            })
-
-        # =====================================================================
-        # 5-MINUTE SIGNALS - Trade entries (filtered by trend)
-        # =====================================================================
-
+        # 5M - Entries
         elif signal == '5M_BULL_BREAK':
-            print(f"5M BULL BREAK @ ${price:.4f}")
-
-            # Exit SHORT if we have one
             if current_position == 'SHORT':
-                print("Exiting SHORT on 5M bull break")
                 exit_position(price)
-
-            # Only enter LONG if trend is BULL
-            if trend_state == 'BULL':
-                if current_position != 'LONG':
-                    print("Trend is BULL -> ENTERING LONG")
-                    result = execute_long(price)
-                    return jsonify({
-                        'status': 'LONG_ENTERED',
-                        'trend': trend_state,
-                        'price': price,
-                        'result': result
-                    })
-                else:
-                    print("Already LONG, skipping")
-                    return jsonify({'status': 'already_long'})
-            else:
-                print(f"Trend is {trend_state}, NOT BULL -> NO ENTRY (staying flat)")
-                return jsonify({
-                    'status': 'no_entry',
-                    'reason': f'Trend is {trend_state}, not BULL',
-                    'position': current_position
-                })
+            if trend_state == 'BULL' and current_position != 'LONG':
+                result = enter_long(price)
+                return jsonify({'status': 'LONG_ENTERED', 'result': result})
+            return jsonify({'status': 'no_entry', 'reason': f'trend={trend_state}'})
 
         elif signal == '5M_BEAR_BREAK':
-            print(f"5M BEAR BREAK @ ${price:.4f}")
-
-            # Exit LONG if we have one
             if current_position == 'LONG':
-                print("Exiting LONG on 5M bear break")
                 exit_position(price)
+            if trend_state == 'BEAR' and current_position != 'SHORT':
+                result = enter_short(price)
+                return jsonify({'status': 'SHORT_ENTERED', 'result': result})
+            return jsonify({'status': 'no_entry', 'reason': f'trend={trend_state}'})
 
-            # Only enter SHORT if trend is BEAR
-            if trend_state == 'BEAR':
-                if current_position != 'SHORT':
-                    print("Trend is BEAR -> ENTERING SHORT")
-                    result = execute_short(price)
-                    return jsonify({
-                        'status': 'SHORT_ENTERED',
-                        'trend': trend_state,
-                        'price': price,
-                        'result': result
-                    })
-                else:
-                    print("Already SHORT, skipping")
-                    return jsonify({'status': 'already_short'})
-            else:
-                print(f"Trend is {trend_state}, NOT BEAR -> NO ENTRY (staying flat)")
-                return jsonify({
-                    'status': 'no_entry',
-                    'reason': f'Trend is {trend_state}, not BEAR',
-                    'position': current_position
-                })
-
-        else:
-            return jsonify({'error': f'Unknown signal: {signal}'}), 400
+        return jsonify({'error': f'Unknown signal: {signal}'}), 400
 
     except Exception as e:
-        print(f"Webhook error: {e}")
+        print(f"Error: {e}")
         return jsonify({'error': str(e)}), 500
 
 # =============================================================================
-# STATUS & CONTROL ENDPOINTS
+# ENDPOINTS
 # =============================================================================
-
 @app.route('/status', methods=['GET'])
 def status():
-    balance = get_account_balance()
-    positions = get_positions()
-    current_price = get_current_price(SYMBOL)
-
     return jsonify({
-        'status': 'running',
         'trend_state': trend_state,
         'current_position': current_position,
         'entry_price': entry_price,
-        'current_price': current_price,
-        'balance': balance,
-        'positions': positions,
-        'settings': {
-            'symbol': SYMBOL,
-            'leverage': LEVERAGE,
-            'stop_loss_pct': STOP_LOSS_PCT
-        }
+        'current_price': get_price(SYMBOL),
+        'balance': get_usdt_balance()
     })
 
 @app.route('/close', methods=['POST'])
 def close_all():
-    global current_position, entry_price
-    result = exit_position(get_current_price(SYMBOL) or 0)
-    current_position = None
-    entry_price = None
-    return jsonify({'status': 'closed', 'result': result})
+    exit_position(get_price(SYMBOL) or 0)
+    return jsonify({'status': 'closed'})
 
 @app.route('/set_trend', methods=['POST'])
-def set_trend():
-    """Manually set trend state (for testing)"""
+def set_trend_endpoint():
     global trend_state
-    data = request.json
-    new_trend = data.get('trend', '').upper()
-    if new_trend in ['BULL', 'BEAR', 'NONE']:
-        trend_state = new_trend if new_trend != 'NONE' else None
-        return jsonify({'status': 'ok', 'trend': trend_state})
-    return jsonify({'error': 'Invalid trend, use BULL, BEAR, or NONE'}), 400
+    trend_state = request.json.get('trend', '').upper() or None
+    save_state(trend_state, current_position, entry_price)
+    return jsonify({'trend': trend_state})
 
 @app.route('/', methods=['GET'])
 def home():
-    return f'''
-    <h1>MXS Multi-Timeframe Bot</h1>
-    <h2>Current State</h2>
-    <ul>
-        <li><b>Trend (30M):</b> {trend_state}</li>
-        <li><b>Position:</b> {current_position}</li>
-        <li><b>Entry Price:</b> {entry_price}</li>
-    </ul>
-    <h2>Strategy</h2>
-    <ul>
-        <li>30M Bull/Bear Break -> Sets trend direction (no trade)</li>
-        <li>5M Bull Break -> Enter LONG only if 30M trend is BULL</li>
-        <li>5M Bear Break -> Enter SHORT only if 30M trend is BEAR</li>
-        <li>5M opposite signal -> Always exits position</li>
-    </ul>
-    <h2>Signals</h2>
-    <ul>
-        <li>30M_BULL_BREAK - Update trend to BULL</li>
-        <li>30M_BEAR_BREAK - Update trend to BEAR</li>
-        <li>5M_BULL_BREAK - Entry signal for LONG</li>
-        <li>5M_BEAR_BREAK - Entry signal for SHORT</li>
-    </ul>
-    <h2>Endpoints</h2>
-    <ul>
-        <li>POST /webhook - Receive signals</li>
-        <li>GET /status - Check status</li>
-        <li>POST /close - Close positions</li>
-        <li>POST /set_trend - Manually set trend</li>
-    </ul>
-    <p>Symbol: {SYMBOL} | Leverage: {LEVERAGE}x | Stop: {STOP_LOSS_PCT*100}%</p>
-    '''
-
-# =============================================================================
-# MAIN
-# =============================================================================
+    return f'''<h1>MXS Multi-TF Bot</h1>
+    <p><b>Trend:</b> {trend_state} | <b>Position:</b> {current_position} | <b>Entry:</b> {entry_price}</p>
+    <p>30M sets trend, 5M enters if aligned. State persisted to file.</p>'''
 
 if __name__ == '__main__':
-    print("""
-    ===================================================================
-         MXS MULTI-TIMEFRAME BOT - 30M Trend + 5M Entry
-    ===================================================================
-      30M_BULL_BREAK / 30M_BEAR_BREAK -> Set trend (no trade)
-      5M_BULL_BREAK -> LONG if trend is BULL
-      5M_BEAR_BREAK -> SHORT if trend is BEAR
-    -------------------------------------------------------------------
-      Symbol: FARTCOIN-USDT | Leverage: 3x | Stop: 10%
-    ===================================================================
-    """)
-
-    if API_KEY == 'your-api-key':
-        print("\n[WARNING] API credentials not set!")
-        print("Set: BLOFIN_API_KEY, BLOFIN_API_SECRET, BLOFIN_PASSPHRASE\n")
-
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    print(f"\n=== MXS BOT STARTED ===")
+    print(f"Trend: {trend_state} | Position: {current_position}")
+    print(f"===========================\n")
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
