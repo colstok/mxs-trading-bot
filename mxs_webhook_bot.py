@@ -444,6 +444,11 @@ def debug():
     bal_response = api_request('GET', '/api/v1/asset/balances?accountType=futures')
     return jsonify({'balance_api_response': bal_response})
 
+@app.route('/positions', methods=['GET'])
+def positions():
+    pos_response = get_positions()
+    return jsonify({'positions': pos_response})
+
 @app.route('/test_setup', methods=['GET'])
 def test_setup():
     pm = set_position_mode('net_mode')
