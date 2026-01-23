@@ -29,7 +29,7 @@ app = Flask(__name__)
 API_KEY = os.environ.get('BLOFIN_API_KEY', 'your-api-key')
 API_SECRET = os.environ.get('BLOFIN_API_SECRET', 'your-api-secret')
 PASSPHRASE = os.environ.get('BLOFIN_PASSPHRASE', 'your-passphrase')
-BASE_URL = "https://demo-trading-openapi.blofin.com"
+BASE_URL = "https://openapi.blofin.com"
 
 SYMBOL = "FARTCOIN-USDT"
 LEVERAGE = 5
