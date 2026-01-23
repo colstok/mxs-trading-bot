@@ -122,6 +122,14 @@ def get_usdt_balance():
 def get_positions():
     return api_request('GET', '/api/v1/account/positions')
 
+def set_margin_mode(symbol, mode):
+    return api_request('POST', '/api/v1/account/set-margin-mode',
+                       {'instId': symbol, 'marginMode': mode})
+
+def set_position_mode(mode):
+    return api_request('POST', '/api/v1/account/set-position-mode',
+                       {'positionMode': mode})
+
 def set_leverage(symbol, lev):
     return api_request('POST', '/api/v1/account/set-leverage',
                        {'instId': symbol, 'leverage': str(lev), 'marginMode': MARGIN_MODE})
@@ -197,6 +205,9 @@ def enter_long(price, swing_low):
     if size <= 0:
         return {'error': 'position size too small'}
 
+    # Set up account before trading
+    set_position_mode('net_mode')
+    set_margin_mode(SYMBOL, MARGIN_MODE)
     set_leverage(SYMBOL, LEVERAGE)
     result = place_order(SYMBOL, 'buy', size, stop)
 
@@ -231,6 +242,9 @@ def enter_short(price, swing_high):
     if size <= 0:
         return {'error': 'position size too small'}
 
+    # Set up account before trading
+    set_position_mode('net_mode')
+    set_margin_mode(SYMBOL, MARGIN_MODE)
     set_leverage(SYMBOL, LEVERAGE)
     result = place_order(SYMBOL, 'sell', size, stop)
 
