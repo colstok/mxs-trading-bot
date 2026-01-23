@@ -1,8 +1,8 @@
 """
 MXS Multi-Timeframe Webhook Trading Bot
 Higher TF trend + Lower TF entries
-- Lower TF (5M) for entries only
-- Higher TF (30M) for exits and trend
+- Lower TF (1M) for entries only
+- Higher TF (10M) for exits and trend
 - FULL ACCOUNT position sizing
 - 2% stop buffer from higher TF swing levels
 """
@@ -303,9 +303,9 @@ def webhook():
         print(f"{'='*60}")
 
         # =====================================================================
-        # 30M (HIGHER TF) - Set trend, store swings, exit on flip
+        # 10M (HIGHER TF) - Set trend, store swings, exit on flip
         # =====================================================================
-        if signal == '30M_BULL_BREAK':
+        if signal == '10M_BULL_BREAK':
             old_trend = trend_state
             trend_state = 'BULL'
 
@@ -315,18 +315,18 @@ def webhook():
             if swing_high:
                 htf_swing_high = swing_high
 
-            print(f"30M BULL -> Trend: {old_trend} -> BULL")
+            print(f"10M BULL -> Trend: {old_trend} -> BULL")
             print(f"HTF Swings updated: Low={htf_swing_low}, High={htf_swing_high}")
 
-            # Exit SHORT on trend flip (30M controls exits)
+            # Exit SHORT on trend flip (10M controls exits)
             if current_position == 'SHORT':
-                print("30M flipped BULL - CLOSING SHORT")
+                print("10M flipped BULL - CLOSING SHORT")
                 exit_position(price)
 
             save_state(trend_state, current_position, entry_price, stop_price, htf_swing_low, htf_swing_high)
             return jsonify({'status': 'trend_updated', 'trend': 'BULL', 'htf_swing_low': htf_swing_low})
 
-        elif signal == '30M_BEAR_BREAK':
+        elif signal == '10M_BEAR_BREAK':
             old_trend = trend_state
             trend_state = 'BEAR'
 
@@ -336,22 +336,22 @@ def webhook():
             if swing_high:
                 htf_swing_high = swing_high
 
-            print(f"30M BEAR -> Trend: {old_trend} -> BEAR")
+            print(f"10M BEAR -> Trend: {old_trend} -> BEAR")
             print(f"HTF Swings updated: Low={htf_swing_low}, High={htf_swing_high}")
 
-            # Exit LONG on trend flip (30M controls exits)
+            # Exit LONG on trend flip (10M controls exits)
             if current_position == 'LONG':
-                print("30M flipped BEAR - CLOSING LONG")
+                print("10M flipped BEAR - CLOSING LONG")
                 exit_position(price)
 
             save_state(trend_state, current_position, entry_price, stop_price, htf_swing_low, htf_swing_high)
             return jsonify({'status': 'trend_updated', 'trend': 'BEAR', 'htf_swing_high': htf_swing_high})
 
         # =====================================================================
-        # 5M (LOWER TF) - Entries only, NO exits on opposite signal
+        # 1M (LOWER TF) - Entries only, NO exits on opposite signal
         # =====================================================================
-        elif signal == '5M_BULL_BREAK':
-            print(f"5M BULL BREAK - Trend is {trend_state}")
+        elif signal == '1M_BULL_BREAK':
+            print(f"1M BULL BREAK - Trend is {trend_state}")
 
             # Only enter if trend is BULL and not already LONG
             if trend_state == 'BULL' and current_position != 'LONG':
@@ -363,11 +363,11 @@ def webhook():
                 else:
                     return jsonify({'status': 'no_entry', 'reason': 'no swing_low available'})
 
-            # Do NOT exit SHORT on 5M bull break - only 30M exits
+            # Do NOT exit SHORT on 1M bull break - only 10M exits
             return jsonify({'status': 'no_action', 'reason': f'trend={trend_state}, pos={current_position}'})
 
-        elif signal == '5M_BEAR_BREAK':
-            print(f"5M BEAR BREAK - Trend is {trend_state}")
+        elif signal == '1M_BEAR_BREAK':
+            print(f"1M BEAR BREAK - Trend is {trend_state}")
 
             # Only enter if trend is BEAR and not already SHORT
             if trend_state == 'BEAR' and current_position != 'SHORT':
@@ -379,7 +379,7 @@ def webhook():
                 else:
                     return jsonify({'status': 'no_entry', 'reason': 'no swing_high available'})
 
-            # Do NOT exit LONG on 5M bear break - only 30M exits
+            # Do NOT exit LONG on 1M bear break - only 10M exits
             return jsonify({'status': 'no_action', 'reason': f'trend={trend_state}, pos={current_position}'})
 
         return jsonify({'error': f'Unknown signal: {signal}'}), 400
@@ -454,16 +454,16 @@ def home():
         <li><b>Entry:</b> {entry_price}</li>
         <li><b>Stop:</b> {stop_price}</li>
     </ul>
-    <h2>HTF Swing Levels (30M)</h2>
+    <h2>HTF Swing Levels (10M)</h2>
     <ul>
         <li><b>Swing Low:</b> {htf_swing_low}</li>
         <li><b>Swing High:</b> {htf_swing_high}</li>
     </ul>
     <h2>Strategy</h2>
     <ul>
-        <li>30M sets trend + stores swing levels + exits positions</li>
-        <li>5M enters only (no exit on opposite signal)</li>
-        <li>Stop: 2% beyond 30M swing level</li>
+        <li>10M sets trend + stores swing levels + exits positions</li>
+        <li>1M enters only (no exit on opposite signal)</li>
+        <li>Stop: 2% beyond 10M swing level</li>
         <li>Position: FULL ACCOUNT</li>
         <li><b>Leverage: {LEVERAGE}x ({MARGIN_MODE} margin)</b></li>
     </ul>
@@ -471,7 +471,7 @@ def home():
 
 if __name__ == '__main__':
     print(f"\n=== MXS BOT STARTED ===")
-    print(f"Strategy: 30M trend/exits, 5M entries only")
+    print(f"Strategy: 10M trend/exits, 1M entries only")
     print(f"Leverage: {LEVERAGE}x | Margin: {MARGIN_MODE}")
     print(f"Position: FULL ACCOUNT | Stop Buffer: {STOP_BUFFER*100}%")
     print(f"Trend: {trend_state} | Position: {current_position}")
