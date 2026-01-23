@@ -390,6 +390,11 @@ def status():
         'stop_buffer': f"{STOP_BUFFER*100}%"
     })
 
+@app.route('/debug', methods=['GET'])
+def debug():
+    bal_response = api_request('GET', '/api/v1/asset/balances?accountType=futures')
+    return jsonify({'balance_api_response': bal_response})
+
 @app.route('/close', methods=['POST'])
 def close_all():
     exit_position(get_price(SYMBOL) or 0)
