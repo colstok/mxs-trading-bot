@@ -407,8 +407,8 @@ def set_trend_endpoint():
     save_state(trend_state, current_position, entry_price, stop_price, htf_swing_low, htf_swing_high)
     return jsonify({'trend': trend_state})
 
-@app.route('/debug', methods=['GET'])
-def get_debug():
+@app.route('/last_webhook', methods=['GET'])
+def get_last_webhook():
     try:
         with open('last_webhook.json', 'r') as f:
             return jsonify(json.load(f))
