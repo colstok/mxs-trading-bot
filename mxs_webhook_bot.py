@@ -162,8 +162,8 @@ def get_price(symbol):
 # POSITION SIZING - FULL ACCOUNT
 # =============================================================================
 def calc_position_size(balance, entry, stop):
-    # Full account position sizing
-    position_value = balance * LEVERAGE
+    # Full account position sizing (95% to leave buffer for fees)
+    position_value = balance * 0.95 * LEVERAGE
     position_size = position_value / entry
 
     stop_distance = abs(entry - stop)
