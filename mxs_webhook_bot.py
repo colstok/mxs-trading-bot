@@ -1,7 +1,7 @@
 """
 MXS Multi-Timeframe Webhook Trading Bot
 - Lower TF (1M) for entries only
-- Higher TF (10M) for exits and trend
+- Higher TF (5M) for exits and trend
 - ALWAYS checks Blofin for actual position state (survives Render restarts)
 """
 
@@ -252,9 +252,9 @@ def webhook():
         print(f"{'='*60}")
 
         # =====================================================================
-        # 10M SIGNALS - Trend + Exits
+        # 5M SIGNALS - Trend + Exits
         # =====================================================================
-        if signal == '10M_BULL_BREAK':
+        if signal == '5M_BULL_BREAK':
             old_trend = trend_state
             trend_state = 'BULL'
             if swing_low:
@@ -262,18 +262,18 @@ def webhook():
             if swing_high:
                 htf_swing_high = swing_high
 
-            print(f"10M BULL -> Trend: {old_trend} -> BULL")
+            print(f"5M BULL -> Trend: {old_trend} -> BULL")
             save_state(trend_state, htf_swing_low, htf_swing_high)
 
             # Exit SHORT if we have one (check Blofin, not internal state)
             if blofin_pos['side'] == 'SHORT':
-                print("10M flipped BULL - CLOSING SHORT on Blofin")
+                print("5M flipped BULL - CLOSING SHORT on Blofin")
                 result = close_position_on_blofin()
                 return jsonify({'status': 'trend_bull_closed_short', 'close_result': result})
 
             return jsonify({'status': 'trend_updated', 'trend': 'BULL'})
 
-        elif signal == '10M_BEAR_BREAK':
+        elif signal == '5M_BEAR_BREAK':
             old_trend = trend_state
             trend_state = 'BEAR'
             if swing_low:
@@ -281,12 +281,12 @@ def webhook():
             if swing_high:
                 htf_swing_high = swing_high
 
-            print(f"10M BEAR -> Trend: {old_trend} -> BEAR")
+            print(f"5M BEAR -> Trend: {old_trend} -> BEAR")
             save_state(trend_state, htf_swing_low, htf_swing_high)
 
             # Exit LONG if we have one (check Blofin, not internal state)
             if blofin_pos['side'] == 'LONG':
-                print("10M flipped BEAR - CLOSING LONG on Blofin")
+                print("5M flipped BEAR - CLOSING LONG on Blofin")
                 result = close_position_on_blofin()
                 return jsonify({'status': 'trend_bear_closed_long', 'close_result': result})
 
@@ -390,7 +390,7 @@ def get_last_webhook():
 @app.route('/', methods=['GET'])
 def home():
     blofin_pos = get_blofin_position()
-    return f'''<h1>MXS Bot - 1M/10M</h1>
+    return f'''<h1>MXS Bot - 1M/5M</h1>
     <h2>Blofin Position (Source of Truth)</h2>
     <ul>
         <li><b>Position:</b> {blofin_pos['side']} ({blofin_pos['size']} contracts)</li>
@@ -404,16 +404,16 @@ def home():
     </ul>
     <h2>Strategy</h2>
     <ul>
-        <li>10M: Sets trend, exits positions on flip</li>
+        <li>5M: Sets trend, exits positions on flip</li>
         <li>1M: Entries only (breaks + continuations)</li>
-        <li>Stop: 2% beyond 10M swing</li>
+        <li>Stop: 2% beyond 5M swing</li>
         <li>Leverage: {LEVERAGE}x isolated</li>
     </ul>
     <p><a href="/status">Status JSON</a> | <a href="/positions">Positions</a> | <a href="/orders">Orders</a></p>'''
 
 if __name__ == '__main__':
     print(f"\n=== MXS BOT STARTED ===")
-    print(f"Strategy: 10M trend/exits, 1M entries")
+    print(f"Strategy: 5M trend/exits, 1M entries")
     print(f"Leverage: {LEVERAGE}x | Stop Buffer: {STOP_BUFFER*100}%")
     print(f"Trend: {trend_state}")
     print(f"HTF Swings: Low={htf_swing_low}, High={htf_swing_high}")
