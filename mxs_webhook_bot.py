@@ -472,6 +472,28 @@ def set_trend_endpoint():
     save_state(trend_state, current_position, entry_price, stop_price, htf_swing_low, htf_swing_high)
     return jsonify({'trend': trend_state})
 
+@app.route('/sync_state', methods=['POST'])
+def sync_state_endpoint():
+    global trend_state, current_position, entry_price, stop_price, htf_swing_low, htf_swing_high
+    data = request.json
+    if 'trend' in data:
+        trend_state = data['trend'].upper() if data['trend'] else None
+    if 'position' in data:
+        current_position = data['position'].upper() if data['position'] else None
+    if 'entry' in data:
+        entry_price = float(data['entry']) if data['entry'] else None
+    if 'stop' in data:
+        stop_price = float(data['stop']) if data['stop'] else None
+    if 'htf_swing_low' in data:
+        htf_swing_low = float(data['htf_swing_low']) if data['htf_swing_low'] else None
+    if 'htf_swing_high' in data:
+        htf_swing_high = float(data['htf_swing_high']) if data['htf_swing_high'] else None
+    save_state(trend_state, current_position, entry_price, stop_price, htf_swing_low, htf_swing_high)
+    return jsonify({
+        'trend': trend_state, 'position': current_position, 'entry': entry_price,
+        'stop': stop_price, 'htf_swing_low': htf_swing_low, 'htf_swing_high': htf_swing_high
+    })
+
 @app.route('/last_webhook', methods=['GET'])
 def get_last_webhook():
     try:
