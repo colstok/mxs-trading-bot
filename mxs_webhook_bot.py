@@ -3,7 +3,7 @@ MXS Multi-Timeframe Webhook Trading Bot
 Higher TF trend + Lower TF entries
 - Lower TF (5M) for entries only
 - Higher TF (30M) for exits and trend
-- 1% risk per trade
+- FULL ACCOUNT position sizing
 - 2% stop buffer from higher TF swing levels
 """
 
@@ -32,10 +32,10 @@ PASSPHRASE = os.environ.get('BLOFIN_PASSPHRASE', 'your-passphrase')
 BASE_URL = "https://demo-trading-openapi.blofin.com"
 
 SYMBOL = "FARTCOIN-USDT"
-LEVERAGE = 4
-RISK_PER_TRADE = 0.01  # 1% of account per trade
+LEVERAGE = 5
 STOP_BUFFER = 0.02     # 2% buffer beyond swing level
 MARGIN_MODE = "isolated"
+POSITION_MODE = "full_account"  # Full account sizing
 
 # =============================================================================
 # STATE PERSISTENCE
@@ -386,7 +386,7 @@ def status():
         'balance': get_usdt_balance(),
         'leverage': f"{LEVERAGE}x",
         'margin_mode': MARGIN_MODE,
-        'risk_per_trade': f"{RISK_PER_TRADE*100}%",
+        'position_mode': 'Full Account',
         'stop_buffer': f"{STOP_BUFFER*100}%"
     })
 
@@ -430,7 +430,7 @@ def home():
         <li>30M sets trend + stores swing levels + exits positions</li>
         <li>5M enters only (no exit on opposite signal)</li>
         <li>Stop: 2% beyond 30M swing level</li>
-        <li>Risk: 1% per trade</li>
+        <li>Position: FULL ACCOUNT</li>
         <li><b>Leverage: {LEVERAGE}x ({MARGIN_MODE} margin)</b></li>
     </ul>
     <p><a href="/debug">Last webhook</a> | <a href="/status">Status JSON</a></p>'''
@@ -439,7 +439,7 @@ if __name__ == '__main__':
     print(f"\n=== MXS BOT STARTED ===")
     print(f"Strategy: 30M trend/exits, 5M entries only")
     print(f"Leverage: {LEVERAGE}x | Margin: {MARGIN_MODE}")
-    print(f"Risk: {RISK_PER_TRADE*100}% | Stop Buffer: {STOP_BUFFER*100}%")
+    print(f"Position: FULL ACCOUNT | Stop Buffer: {STOP_BUFFER*100}%")
     print(f"Trend: {trend_state} | Position: {current_position}")
     print(f"HTF Swings: Low={htf_swing_low}, High={htf_swing_high}")
     print(f"===========================\n")
