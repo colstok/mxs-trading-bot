@@ -382,6 +382,37 @@ def webhook():
             # Do NOT exit LONG on 1M bear break - only 10M exits
             return jsonify({'status': 'no_action', 'reason': f'trend={trend_state}, pos={current_position}'})
 
+        # =====================================================================
+        # 1M CONTINUATIONS - Also enter on continuations when aligned with trend
+        # =====================================================================
+        elif signal == '1M_BULL_CONTINUATION':
+            print(f"1M BULL CONTINUATION - Trend is {trend_state}")
+
+            # Only enter if trend is BULL and not already LONG
+            if trend_state == 'BULL' and current_position != 'LONG':
+                sl = htf_swing_low if htf_swing_low else swing_low
+                if sl:
+                    result = enter_long(price, sl)
+                    return jsonify({'status': 'LONG_ENTERED_CONT', 'stop': sl * (1-STOP_BUFFER), 'result': result})
+                else:
+                    return jsonify({'status': 'no_entry', 'reason': 'no swing_low available'})
+
+            return jsonify({'status': 'no_action', 'reason': f'trend={trend_state}, pos={current_position}'})
+
+        elif signal == '1M_BEAR_CONTINUATION':
+            print(f"1M BEAR CONTINUATION - Trend is {trend_state}")
+
+            # Only enter if trend is BEAR and not already SHORT
+            if trend_state == 'BEAR' and current_position != 'SHORT':
+                sh = htf_swing_high if htf_swing_high else swing_high
+                if sh:
+                    result = enter_short(price, sh)
+                    return jsonify({'status': 'SHORT_ENTERED_CONT', 'stop': sh * (1+STOP_BUFFER), 'result': result})
+                else:
+                    return jsonify({'status': 'no_entry', 'reason': 'no swing_high available'})
+
+            return jsonify({'status': 'no_action', 'reason': f'trend={trend_state}, pos={current_position}'})
+
         return jsonify({'error': f'Unknown signal: {signal}'}), 400
 
     except Exception as e:
