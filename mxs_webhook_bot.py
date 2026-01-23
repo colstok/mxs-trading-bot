@@ -449,6 +449,12 @@ def positions():
     pos_response = get_positions()
     return jsonify({'positions': pos_response})
 
+@app.route('/orders', methods=['GET'])
+def orders():
+    pending = api_request('GET', '/api/v1/trade/orders-pending?instId=FARTCOIN-USDT')
+    tpsl = api_request('GET', '/api/v1/trade/orders-tpsl-pending?instId=FARTCOIN-USDT')
+    return jsonify({'pending_orders': pending, 'tpsl_orders': tpsl})
+
 @app.route('/test_setup', methods=['GET'])
 def test_setup():
     pm = set_position_mode('net_mode')
