@@ -206,10 +206,14 @@ def enter_long(price, swing_low):
         return {'error': 'position size too small'}
 
     # Set up account before trading
-    set_position_mode('net_mode')
-    set_margin_mode(SYMBOL, MARGIN_MODE)
-    set_leverage(SYMBOL, LEVERAGE)
+    pm_result = set_position_mode('net_mode')
+    print(f"[SETUP] Position mode result: {pm_result}")
+    mm_result = set_margin_mode(SYMBOL, MARGIN_MODE)
+    print(f"[SETUP] Margin mode result: {mm_result}")
+    lev_result = set_leverage(SYMBOL, LEVERAGE)
+    print(f"[SETUP] Leverage result: {lev_result}")
     result = place_order(SYMBOL, 'buy', size, stop)
+    print(f"[ORDER] Result: {result}")
 
     if result.get('code') == '0':
         current_position = 'LONG'
@@ -408,6 +412,17 @@ def status():
 def debug():
     bal_response = api_request('GET', '/api/v1/asset/balances?accountType=futures')
     return jsonify({'balance_api_response': bal_response})
+
+@app.route('/test_setup', methods=['GET'])
+def test_setup():
+    pm = set_position_mode('net_mode')
+    mm = set_margin_mode(SYMBOL, MARGIN_MODE)
+    lev = set_leverage(SYMBOL, LEVERAGE)
+    return jsonify({
+        'position_mode': pm,
+        'margin_mode': mm,
+        'leverage': lev
+    })
 
 @app.route('/close', methods=['POST'])
 def close_all():
