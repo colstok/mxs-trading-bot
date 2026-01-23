@@ -112,9 +112,9 @@ def api_request(method, endpoint, data=None):
         return {'code': '-1', 'msg': str(e)}
 
 def get_usdt_balance():
-    r = api_request('GET', '/api/v1/account/balance')
+    r = api_request('GET', '/api/v1/asset/balances?accountType=futures')
     if r.get('code') == '0':
-        for a in r.get('data', {}).get('details', []):
+        for a in r.get('data', []):
             if a.get('currency') == 'USDT':
                 return float(a.get('available', 0))
     return 0
