@@ -256,9 +256,23 @@ def enter_short(price, swing_high):
 # =============================================================================
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    # Log raw request first for debugging
+    raw_data = request.get_data(as_text=True)
+    print(f"\n{'='*60}")
+    print(f"[RAW WEBHOOK] {raw_data[:500]}")  # First 500 chars
+    print(f"[HEADERS] Content-Type: {request.content_type}")
+    print(f"{'='*60}")
+
     try:
         data = request.get_json(force=True)
+        print(f"[PARSED JSON] {data}")
+    except Exception as parse_err:
+        error_msg = f"JSON PARSE ERROR: {parse_err} | Raw: {raw_data[:200]}"
+        print(f"[ERROR] {error_msg}")
+        STATE.log(error_msg)
+        return jsonify({'error': 'Invalid JSON', 'details': str(parse_err)}), 400
 
+    try:
         signal = str(data.get('signal', '')).upper().strip()
         price = float(data.get('price', 0)) or get_price(SYMBOL)
         swing_low = float(data.get('swing_low')) if data.get('swing_low') else None
@@ -270,14 +284,13 @@ def webhook():
 
         blofin_pos = get_blofin_position()
 
-        print(f"\n{'='*60}")
-        print(f"WEBHOOK RECEIVED")
-        print(f"Signal: {signal}")
-        print(f"Price: {price}")
-        print(f"Swing Low: {swing_low}, Swing High: {swing_high}")
-        print(f"Current Trend: {STATE.trend}")
-        print(f"Blofin Position: {blofin_pos}")
-        print(f"{'='*60}")
+        print(f"[SIGNAL] {signal}")
+        print(f"[PRICE] {price}")
+        print(f"[SWINGS] low={swing_low}, high={swing_high}")
+        print(f"[TREND] {STATE.trend}")
+        print(f"[POSITION] {blofin_pos}")
+        print(f"[MATCH CHECK] '5M' in signal: {'5M' in signal}, 'BULL' in signal: {'BULL' in signal}, 'BEAR' in signal: {'BEAR' in signal}")
+        print(f"[MATCH CHECK] '1M' in signal: {'1M' in signal}")
 
         STATE.log(f"SIGNAL: {signal} | price={price} | trend={STATE.trend} | pos={blofin_pos['side']}")
 
@@ -340,13 +353,18 @@ def webhook():
             return jsonify({'action': 'SHORT_ENTERED', 'stop': sh * (1+STOP_BUFFER), 'result': str(result)})
 
         else:
-            STATE.log(f"UNKNOWN SIGNAL: {signal}")
-            return jsonify({'error': f'Unknown signal: {signal}'}), 400
+            error_msg = f"UNKNOWN SIGNAL: '{signal}' | 5M:{('5M' in signal)} | 1M:{('1M' in signal)} | BULL:{('BULL' in signal)} | BEAR:{('BEAR' in signal)}"
+            print(f"[ERROR] {error_msg}")
+            STATE.log(error_msg)
+            return jsonify({'error': f'Unknown signal: {signal}', 'signal_received': signal}), 400
 
     except Exception as e:
-        print(f"[ERROR] {e}")
-        STATE.log(f"ERROR: {e}")
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[EXCEPTION] {e}")
+        print(f"[TRACEBACK] {tb}")
+        STATE.log(f"EXCEPTION: {e} | {tb[:200]}")
+        return jsonify({'error': str(e), 'type': type(e).__name__}), 500
 
 # =============================================================================
 # ENDPOINTS
