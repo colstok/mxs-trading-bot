@@ -263,8 +263,13 @@ def webhook():
     print(f"[HEADERS] Content-Type: {request.content_type}")
     print(f"{'='*60}")
 
+    # Fix TradingView double-brace issue: {{ -> {
+    if raw_data.startswith('{{'):
+        raw_data = raw_data[1:]  # Remove first {
+        print(f"[FIXED] Removed leading brace: {raw_data[:100]}")
+
     try:
-        data = request.get_json(force=True)
+        data = json.loads(raw_data)
         print(f"[PARSED JSON] {data}")
     except Exception as parse_err:
         error_msg = f"JSON PARSE ERROR: {parse_err} | Raw: {raw_data[:200]}"
