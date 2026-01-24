@@ -31,8 +31,8 @@ LEVERAGE = 10
 STOP_BUFFER = 0.02
 MARGIN_MODE = "isolated"
 
-# State file path - will persist between requests
-STATE_FILE = '/tmp/mxs_bot_state.json'
+# State file path - in app directory (persists on Render)
+STATE_FILE = 'bot_state.json'
 
 # =============================================================================
 # STATE - File-based persistence for Render
