@@ -30,7 +30,7 @@ PASSPHRASE = os.environ.get('BLOFIN_PASSPHRASE', 'your-passphrase')
 BASE_URL = "https://openapi.blofin.com"
 
 SYMBOL = "FARTCOIN-USDT"
-LEVERAGE = 5
+LEVERAGE = 10
 STOP_BUFFER = 0.02
 MARGIN_MODE = "isolated"
 
