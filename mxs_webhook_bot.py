@@ -231,7 +231,9 @@ def webhook():
     global trend_state, htf_swing_low, htf_swing_high
 
     try:
-        data = request.json
+        # Use force=True to parse JSON even if Content-Type header is missing/wrong
+        # TradingView webhooks don't always set Content-Type: application/json
+        data = request.get_json(force=True)
         with open('last_webhook.json', 'w') as f:
             json.dump({'received_at': datetime.now().isoformat(), 'data': data}, f, indent=2)
 
