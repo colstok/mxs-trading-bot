@@ -254,9 +254,9 @@ def webhook():
         print(f"{'='*60}")
 
         # =====================================================================
-        # 5M SIGNALS - Trend + Exits
+        # 5M SIGNALS - Trend + Exits ONLY (NEVER ENTER ON 5M)
         # =====================================================================
-        if signal == '5M_BULL_BREAK':
+        if signal == '5M_BULL_BREAK' or signal == '5M_BULL_CONTINUATION':
             old_trend = trend_state
             trend_state = 'BULL'
             if swing_low:
@@ -264,18 +264,18 @@ def webhook():
             if swing_high:
                 htf_swing_high = swing_high
 
-            print(f"5M BULL -> Trend: {old_trend} -> BULL")
+            print(f"5M BULL -> Trend: {old_trend} -> BULL (NO ENTRY - 5M is trend only)")
             save_state(trend_state, htf_swing_low, htf_swing_high)
 
             # Exit SHORT if we have one (check Blofin, not internal state)
             if blofin_pos['side'] == 'SHORT':
-                print("5M flipped BULL - CLOSING SHORT on Blofin")
+                print("5M flipped BULL - CLOSING SHORT on Blofin (NO NEW ENTRY)")
                 result = close_position_on_blofin()
-                return jsonify({'status': 'trend_bull_closed_short', 'close_result': result})
+                return jsonify({'status': 'trend_bull_closed_short', 'close_result': result, 'entry': 'NONE - 5M signals never enter'})
 
-            return jsonify({'status': 'trend_updated', 'trend': 'BULL'})
+            return jsonify({'status': 'trend_updated', 'trend': 'BULL', 'entry': 'NONE - 5M signals never enter'})
 
-        elif signal == '5M_BEAR_BREAK':
+        elif signal == '5M_BEAR_BREAK' or signal == '5M_BEAR_CONTINUATION':
             old_trend = trend_state
             trend_state = 'BEAR'
             if swing_low:
@@ -283,16 +283,16 @@ def webhook():
             if swing_high:
                 htf_swing_high = swing_high
 
-            print(f"5M BEAR -> Trend: {old_trend} -> BEAR")
+            print(f"5M BEAR -> Trend: {old_trend} -> BEAR (NO ENTRY - 5M is trend only)")
             save_state(trend_state, htf_swing_low, htf_swing_high)
 
             # Exit LONG if we have one (check Blofin, not internal state)
             if blofin_pos['side'] == 'LONG':
-                print("5M flipped BEAR - CLOSING LONG on Blofin")
+                print("5M flipped BEAR - CLOSING LONG on Blofin (NO NEW ENTRY)")
                 result = close_position_on_blofin()
-                return jsonify({'status': 'trend_bear_closed_long', 'close_result': result})
+                return jsonify({'status': 'trend_bear_closed_long', 'close_result': result, 'entry': 'NONE - 5M signals never enter'})
 
-            return jsonify({'status': 'trend_updated', 'trend': 'BEAR'})
+            return jsonify({'status': 'trend_updated', 'trend': 'BEAR', 'entry': 'NONE - 5M signals never enter'})
 
         # =====================================================================
         # 1M SIGNALS - Entries only
