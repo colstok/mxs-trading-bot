@@ -380,8 +380,9 @@ def webhook():
 
     # =========================================================================
     # 4H (HTF) SIGNALS - Set trend, store swings, trail stops, exit on flip
+    # Only flip trend on STRUCTURE BREAKS (signal must contain BREAK)
     # =========================================================================
-    elif '4H' in signal and 'BULL' in signal and 'UPDATE' not in signal:
+    elif '4H' in signal and 'BULL' in signal and 'BREAK' in signal:
         old_trend = htf_trend
         htf_trend = 'BULL'
         had_deviation = False  # Reset deviation on HTF change
@@ -408,7 +409,7 @@ def webhook():
         save_state()
         return jsonify({'action': 'HTF_BULL', 'htf_swing_low': htf_swing_low, 'htf_swing_high': htf_swing_high})
 
-    elif '4H' in signal and 'BEAR' in signal and 'UPDATE' not in signal:
+    elif '4H' in signal and 'BEAR' in signal and 'BREAK' in signal:
         old_trend = htf_trend
         htf_trend = 'BEAR'
         had_deviation = False  # Reset deviation on HTF change
@@ -434,6 +435,34 @@ def webhook():
 
         save_state()
         return jsonify({'action': 'HTF_BEAR', 'htf_swing_low': htf_swing_low, 'htf_swing_high': htf_swing_high})
+
+    # =========================================================================
+    # 4H OTHER SIGNALS (Imbalance, Reclaim, Zone Cross, etc.) - Update swings only, NO trend flip
+    # =========================================================================
+    elif '4H' in signal and 'BREAK' not in signal and 'UPDATE' not in signal:
+        # This catches: Imbalance, Reclaim, Zone Cross, etc.
+        if swing_low:
+            htf_swing_low = swing_low
+        if swing_high:
+            htf_swing_high = swing_high
+
+        log_signal(f"4H OTHER ({signal}): swings updated - low={htf_swing_low}, high={htf_swing_high} (NO TREND CHANGE)")
+
+        # Trail stop for existing positions
+        if blofin_pos['side'] == 'LONG' and htf_swing_low and entry_price:
+            new_stop = calculate_stop(entry_price, htf_swing_low, 'LONG')
+            if stop_price and new_stop > stop_price:
+                stop_price = new_stop
+                log_signal(f"TRAIL LONG: stop raised to {new_stop:.6f}")
+
+        elif blofin_pos['side'] == 'SHORT' and htf_swing_high and entry_price:
+            new_stop = calculate_stop(entry_price, htf_swing_high, 'SHORT')
+            if stop_price and new_stop < stop_price:
+                stop_price = new_stop
+                log_signal(f"TRAIL SHORT: stop lowered to {new_stop:.6f}")
+
+        save_state()
+        return jsonify({'action': 'HTF_SWING_UPDATE', 'signal': signal, 'htf_swing_low': htf_swing_low, 'htf_swing_high': htf_swing_high})
 
     # =========================================================================
     # 30M (LTF) BREAK SIGNALS - Require deviation
