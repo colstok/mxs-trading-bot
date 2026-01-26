@@ -351,9 +351,37 @@ def webhook():
     log_signal(f"RECV: {signal} | price={price:.6f} | htf={htf_trend} | ltf={ltf_trend} | dev={had_deviation}")
 
     # =========================================================================
+    # 4H_UPDATE - Just update swings, no trend change (from Reclaim, Zone Cross, etc.)
+    # =========================================================================
+    if '4H' in signal and 'UPDATE' in signal:
+        if swing_low:
+            htf_swing_low = swing_low
+        if swing_high:
+            htf_swing_high = swing_high
+
+        log_signal(f"4H UPDATE: swings updated - low={htf_swing_low}, high={htf_swing_high}")
+
+        # Trail stop for existing LONG (move stop up to new swing low)
+        if blofin_pos['side'] == 'LONG' and htf_swing_low and entry_price:
+            new_stop = calculate_stop(entry_price, htf_swing_low, 'LONG')
+            if stop_price and new_stop > stop_price:
+                stop_price = new_stop
+                log_signal(f"TRAIL LONG: stop raised to {new_stop:.6f}")
+
+        # Trail stop for existing SHORT (move stop down to new swing high)
+        elif blofin_pos['side'] == 'SHORT' and htf_swing_high and entry_price:
+            new_stop = calculate_stop(entry_price, htf_swing_high, 'SHORT')
+            if stop_price and new_stop < stop_price:
+                stop_price = new_stop
+                log_signal(f"TRAIL SHORT: stop lowered to {new_stop:.6f}")
+
+        save_state()
+        return jsonify({'action': 'SWINGS_UPDATED', 'htf_swing_low': htf_swing_low, 'htf_swing_high': htf_swing_high})
+
+    # =========================================================================
     # 4H (HTF) SIGNALS - Set trend, store swings, trail stops, exit on flip
     # =========================================================================
-    if '4H' in signal and 'BULL' in signal:
+    elif '4H' in signal and 'BULL' in signal and 'UPDATE' not in signal:
         old_trend = htf_trend
         htf_trend = 'BULL'
         had_deviation = False  # Reset deviation on HTF change
@@ -380,7 +408,7 @@ def webhook():
         save_state()
         return jsonify({'action': 'HTF_BULL', 'htf_swing_low': htf_swing_low, 'htf_swing_high': htf_swing_high})
 
-    elif '4H' in signal and 'BEAR' in signal:
+    elif '4H' in signal and 'BEAR' in signal and 'UPDATE' not in signal:
         old_trend = htf_trend
         htf_trend = 'BEAR'
         had_deviation = False  # Reset deviation on HTF change
@@ -436,12 +464,11 @@ def webhook():
             save_state()
             return jsonify({'action': 'NO_ENTRY', 'reason': 'already LONG'})
 
-        sl = htf_swing_low or swing_low
-        if not sl:
+        if not htf_swing_low:
             save_state()
-            return jsonify({'action': 'NO_ENTRY', 'reason': 'no swing_low for stop'})
+            return jsonify({'action': 'NO_ENTRY', 'reason': 'no HTF swing_low for stop'})
 
-        result = enter_long(price, sl)
+        result = enter_long(price, htf_swing_low)
         return jsonify({'action': 'LONG_ENTERED', 'type': 'BREAK', 'result': str(result)})
 
     elif '30M' in signal and 'BEAR' in signal and 'CONT' not in signal:
@@ -470,12 +497,11 @@ def webhook():
             save_state()
             return jsonify({'action': 'NO_ENTRY', 'reason': 'already SHORT'})
 
-        sh = htf_swing_high or swing_high
-        if not sh:
+        if not htf_swing_high:
             save_state()
-            return jsonify({'action': 'NO_ENTRY', 'reason': 'no swing_high for stop'})
+            return jsonify({'action': 'NO_ENTRY', 'reason': 'no HTF swing_high for stop'})
 
-        result = enter_short(price, sh)
+        result = enter_short(price, htf_swing_high)
         return jsonify({'action': 'SHORT_ENTERED', 'type': 'BREAK', 'result': str(result)})
 
     # =========================================================================
@@ -491,11 +517,10 @@ def webhook():
         if blofin_pos['side'] == 'LONG':
             return jsonify({'action': 'NO_ENTRY', 'reason': 'already LONG'})
 
-        sl = htf_swing_low or swing_low
-        if not sl:
-            return jsonify({'action': 'NO_ENTRY', 'reason': 'no swing_low for stop'})
+        if not htf_swing_low:
+            return jsonify({'action': 'NO_ENTRY', 'reason': 'no HTF swing_low for stop'})
 
-        result = enter_long(price, sl)
+        result = enter_long(price, htf_swing_low)
         return jsonify({'action': 'LONG_ENTERED', 'type': 'CONTINUATION', 'result': str(result)})
 
     elif '30M' in signal and 'BEAR' in signal and 'CONT' in signal:
@@ -508,11 +533,10 @@ def webhook():
         if blofin_pos['side'] == 'SHORT':
             return jsonify({'action': 'NO_ENTRY', 'reason': 'already SHORT'})
 
-        sh = htf_swing_high or swing_high
-        if not sh:
-            return jsonify({'action': 'NO_ENTRY', 'reason': 'no swing_high for stop'})
+        if not htf_swing_high:
+            return jsonify({'action': 'NO_ENTRY', 'reason': 'no HTF swing_high for stop'})
 
-        result = enter_short(price, sh)
+        result = enter_short(price, htf_swing_high)
         return jsonify({'action': 'SHORT_ENTERED', 'type': 'CONTINUATION', 'result': str(result)})
 
     else:
